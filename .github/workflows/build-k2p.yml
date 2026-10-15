@@ -1,0 +1,196 @@
+# =============================================================================
+# GitHub Actions 工作流：编译 K2P 的 Padavan 固件（**最终版：用户 2026-10-15 决定**）
+# -----------------------------------------------------------------------------
+# 依据：doc/D12 §16（编译规划 v2）· doc/D13 §1.7/§8（功能取舍与决策）· 第 103/106/107 轮
+# 由 hanwckf/padavan-4.4 自带的 .github/workflows/CI.yml 改造而来
+#   改动：① runs-on 20.04→22.04（20.04 已被 GitHub 弃用，不改必失败）
+#         ② 单 target（只编 K2P-final）③ 增加 toolchain 缓存
+#         ④ 增加"确认 9 项用户决定是否生效"步骤
+#         ⑤ 增加"产物自检"（u-boot legacy image 头 + 双 CRC + squashfs + 尺寸）
+#         ⑥ WDT 补丁默认 **no**（★ 喂狗可用【零编译脚本】实现，不必改固件）
+#
+# ★ 版本变更日志：
+#   v1  2026-10-15 17:25  初版（9 步流程定稿）
+#   v2  2026-10-15 18:30  **修正 "Verify built image" 的两处缺陷**：
+#                         ① v1 按 Broadcom trx 头布局解析（b[4:8]=len / b[8:12]=crc），
+#                            但 Padavan 产出的 .trx 是 u-boot legacy image ⇒ 对【正确镜像】
+#                            也打印 "data crc BAD" + "TOO BIG(3.9GB)"（假警报）；
+#                         ② v1 没有失败路径（仅"无 .trx"时才 raise）⇒ 对【真损坏的镜像】
+#                            仍 rc=0 静默放行（零执行力度，与步骤名承诺不符）。
+#                         现改为按 0x04 hcrc / 0x08 itime / 0x0C ih_size / 0x10 ih_load /
+#                         0x14 ih_ep / 0x18 dcrc 解析，补齐 squashfs 魔数 + load 地址判据，
+#                         并对齐 04_工具脚本/r102_trx_verify.py；不通过则 ::error:: + 非零退出。
+#                         元验证：good/corrupt_data/bad_magic/padded_mtd3 四组对照全符合预期。
+#                         证据：对 02_配置备份/回退镜像_20261015/K2P_4.4.3.9_recovered.trx 实测。
+#                         旧版留存 build-k2p.yml.bak_20261015_1828
+#
+# ★ 需要你上传【两个文件】到自己 fork 的仓库：
+#   1) .github/workflows/build-k2p.yml            ← 本文件
+#   2) configs/K2P-final.config                   ← 05_固件构建/K2P-final.config
+#      （或放到 trunk/configs/templates/K2P-final.config；两者任一即可，脚本会自动找/复制）
+#   （若 with_wdt_patch=yes，还需 patches/0001-rc-watchdog-feed-hw-wdt.patch）
+#
+# 触发：仓库页 → Actions → 左侧 "Build K2P Padavan (final)" → Run workflow
+# 产出：运行页底部 Artifacts → K2P-padavan-images（7z，含 .trx + md5sum.txt）
+# =============================================================================
+name: Build K2P Padavan (final)
+
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: '编译目标（configs/templates/<名字>.config）'
+        required: false
+        default: 'K2P-final'
+      with_wdt_patch:
+        description: '打 WDT 喂狗补丁？（yes / no）—— 默认 no：喂狗可用零编译脚本实现'
+        required: false
+        default: 'no'
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build:
+    name: build-${{ github.event.inputs.target || 'K2P-final' }}
+    runs-on: ubuntu-22.04
+    env:
+      IMAGES_DIR: /opt/images
+      TARGET: ${{ github.event.inputs.target || 'K2P-final' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get -y install \
+            libtool-bin gperf python3-docutils autopoint gettext \
+            build-essential fakeroot p7zip-full patch curl
+
+      # ---- 把我们的定制配置放进 templates（两种上传位置都支持）----
+      - name: Place custom config
+        run: |
+          set -e
+          A="trunk/configs/templates/${TARGET}.config"
+          B="configs/${TARGET}.config"
+          if [ -f "$A" ]; then
+            echo "OK already exists: $A"
+          elif [ -f "$B" ]; then
+            echo "copy $B -> $A"
+            cp -f "$B" "$A"
+          else
+            echo "::error::config not found: upload configs/${TARGET}.config or trunk/configs/templates/${TARGET}.config"
+            exit 1
+          fi
+
+      # ---- 打印"9 项用户决定"是否真的生效（防止编错/刷错）----
+      - name: Verify decisions in config
+        run: |
+          set -e
+          F="trunk/configs/templates/${TARGET}.config"
+          echo "===== user decisions (expect 5 x n + 4 x y) ====="
+          for k in DOGCOM MINIEAP NJIT_CLIENT SRELAY EAP_PEAP SMARTDNS QOS IMQ IFB; do
+            v=$(grep -m1 "^CONFIG_FIRMWARE_INCLUDE_${k}=" "$F" || echo "(missing)")
+            printf "  %-12s %s\n" "$k" "$v"
+          done
+          echo "===== coremark (no switch; from user/Makefile dir_y) ====="
+          grep -n "dir_y.*coremark" trunk/user/Makefile || echo "  WARN not found - check baseline is hanwckf, not MeIsReallyBa"
+
+      - name: Show expected version string
+        run: |
+          echo "version string comes from versions.inc (git short hash):"
+          echo "  $(git rev-parse --short=7 HEAD)"
+          echo "(current firmware is 4.4.3.9-100_6acfc2c; this build should be 4.4.3.9-100_<hash above>)"
+
+      # ---- WDT 喂狗补丁（默认关）----
+      - name: Apply WDT patch
+        if: ${{ github.event.inputs.with_wdt_patch == 'yes' }}
+        run: |
+          set -e
+          P="patches/0001-rc-watchdog-feed-hw-wdt.patch"
+          if [ ! -f "$P" ]; then
+            echo "::error::patch not found: upload $P, or set with_wdt_patch=no"
+            exit 1
+          fi
+          echo "== dry run =="
+          patch -p1 --dry-run < "$P"
+          echo "== apply =="
+          patch -p1 < "$P"
+          grep -n "hw_wdt_feed" trunk/user/rc/watchdog.c | head
+
+      # ---- toolchain：预编译 tar.xz，命中缓存则秒过 ----
+      - name: Cache toolchain
+        uses: actions/cache@v4
+        with:
+          path: toolchain-mipsel/toolchain-4.4.x
+          key: tc-4.4.x-${{ runner.os }}-v1
+
+      - name: Prepare toolchain
+        run: |
+          cd toolchain-mipsel
+          sh dl_toolchain.sh          # 已存在 toolchain-4.4.x/ 时脚本会直接跳过
+
+      - name: Build firmware
+        run: |
+          cd trunk
+          mkdir -p ${IMAGES_DIR}
+          fakeroot ./build_firmware_ci ${TARGET}
+          cp -f images/*.trx ${IMAGES_DIR}/
+          ls -lh ${IMAGES_DIR}/
+
+      # ---- 产物自检（u-boot legacy image 头 + 双 CRC + squashfs 魔数 + 加载地址 + 尺寸）----
+      # ★ 2026-10-15 修正：原实现按【Broadcom trx 头】布局解析（b[4:8]=len, b[8:12]=crc），
+      #   而 Padavan 产出的 .trx 实为【u-boot legacy image】⇒ 必然误报 "data crc BAD / TOO BIG"。
+      #   正确布局：0x04 hcrc · 0x08 itime · 0x0C ih_size · 0x10 ih_load · 0x14 ih_ep · 0x18 dcrc。
+      #   本次判据与本地 04_工具脚本/r102_trx_verify.py 对齐（该脚本已对真实镜像实测通过）。
+      - name: Verify built image
+        run: |
+          cd ${IMAGES_DIR}
+          python3 - <<'PY'
+          import glob, struct, zlib
+          MAGIC    = 0x27051956      # u-boot legacy image
+          MTD3_LEN = 15925248        # 设备 /proc/mtd 实测
+          LOAD     = 0x81001000      # 上游 Makefile LOAD_ADDR
+          trx = sorted(glob.glob("*.trx"))
+          if not trx:
+              raise SystemExit("::error::no .trx produced")
+          bad = []
+          for p in trx:
+              b = open(p, "rb").read()
+              magic = struct.unpack(">I", b[0:4])[0]
+              hcrc, itime, isize, iload, iep, dcrc = struct.unpack(">IIIIII", b[4:28])
+              hdr = bytearray(b[0:64]); hdr[4:8] = b"\0\0\0\0"
+              hcrc_calc = zlib.crc32(bytes(hdr)) & 0xffffffff
+              dcrc_calc = zlib.crc32(b[64:64 + isize]) & 0xffffffff
+              total = 64 + isize
+              ksz = struct.unpack(">I", b[60:64])[0]
+              sq_ok = b[ksz:ksz + 4] == b"hsqs"
+              print("image: %s  %d bytes" % (p, len(b)))
+              print("  magic    : 0x%08X %s" % (magic, "OK" if magic == MAGIC else "BAD (not u-boot legacy image)"))
+              print("  ih_size  : %d  ->  image total %d (64 + ih_size)" % (isize, total))
+              print("  ih_load  : 0x%08X %s" % (iload, "OK" if iload == LOAD else "BAD (expect 0x%08X)" % LOAD))
+              print("  hdr crc  : 0x%08X / calc 0x%08X  %s" % (hcrc, hcrc_calc, "OK" if hcrc == hcrc_calc else "BAD"))
+              print("  data crc : 0x%08X / calc 0x%08X  %s" % (dcrc, dcrc_calc, "OK" if dcrc == dcrc_calc else "BAD"))
+              print("  rootfs   : hsqs @0x%X  %s" % (ksz, "OK" if sq_ok else "BAD"))
+              print("  fits mtd3(%d): %s  margin %d" % (MTD3_LEN, "OK" if total <= MTD3_LEN else "TOO BIG", MTD3_LEN - total))
+              if not (magic == MAGIC and hcrc == hcrc_calc and dcrc == dcrc_calc
+                      and sq_ok and iload == LOAD and total <= MTD3_LEN):
+                  bad.append(p)
+          if bad:
+              raise SystemExit("::error::image self-check FAILED: %s" % ", ".join(bad))
+          print("::notice::all images passed: magic + hdr crc + data crc + squashfs + load + size")
+          PY
+
+      - name: Package (md5 + 7z)
+        run: |
+          cd ${IMAGES_DIR}
+          md5sum *.trx | tee md5sum.txt
+          7z a -mx=9 k2p-padavan-images.7z ./*
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: K2P-padavan-images
+          path: ${{ env.IMAGES_DIR }}/*.7z
+          retention-days: 30
