@@ -1,0 +1,10 @@
+--- a/trunk/user/Makefile
++++ b/trunk/user/Makefile
+@@ -100,7 +100,6 @@
+ ifneq ($(CONFIG_WITHOUT_KERNEL),y)
+ dir_$(CONFIG_FIRMWARE_INCLUDE_IPSET)		+= ipset
+ endif
+-dir_y						+= poptop
+ dir_y						+= ebtables
+ dir_y						+= iproute2
+ dir_y						+= wireless_tools
