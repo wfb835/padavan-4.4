@@ -1,0 +1,12 @@
+diff --git a/trunk/user/miniupnpd/Makefile b/trunk/user/miniupnpd/Makefile
+--- a/trunk/user/miniupnpd/Makefile
++++ b/trunk/user/miniupnpd/Makefile
+@@ -10,7 +10,7 @@
+ IPTABLESPATH=$(ROOTDIR)/user/iptables/$(IPT_VERSION)
+ 
+ all:
+-	cd $(SRC_NAME) && ./genconfig.sh
++	cd $(SRC_NAME) && ./genconfig.sh --portinuse --leasefile
+ 	$(MAKE) -f Makefile.linux -C $(SRC_NAME) IPTABLESPATH=$(IPTABLESPATH) ENABLE_IPV6=$(ENABLE_IPV6)
+ 
+ clean:
