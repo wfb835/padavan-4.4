@@ -1,0 +1,22 @@
+--- a/trunk/user/Makefile
++++ b/trunk/user/Makefile
+@@ -113,19 +113,14 @@
+ dir_y						+= www
+ dir_y						+= rc
+ dir_$(CONFIG_FIRMWARE_INCLUDE_ANTFS)		+= antfs
+-dir_y						+= infosvr
+ dir_y						+= inadyn
+ dir_y						+= miniupnpd
+ dir_y						+= dnsmasq
+ dir_y						+= igmpproxy
+-dir_y						+= udpxy
+ dir_y						+= utils
+-dir_y						+= lanauth
+-dir_y						+= 802.1x
+ dir_y						+= wpa_supplicant
+ dir_y						+= pppd
+ dir_y						+= pppoe
+-dir_y						+= xl2tpd
+ dir_$(CONFIG_FIRMWARE_INCLUDE_RPL2TP)		+= rp-l2tp
+ dir_y						+= lldt
+ dir_y						+= scripts
