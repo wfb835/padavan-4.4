@@ -280,7 +280,12 @@ jobs:
             "$U" -ll "$R" > /tmp/rootfs-list.txt 2>/dev/null || fail "unsquashfs 解析失败: $R"
             echo "  rootfs 条目数: $(wc -l < /tmp/rootfs-list.txt)"
             echo "===== 必须【存在】 ====="
-            for f in usr/bin/frpc usr/bin/lsz usr/bin/lrz usr/bin/nano usr/bin/htop usr/sbin/openssl usr/bin/ttyd usr/bin/tcpdump usr/bin/iperf3 usr/bin/smartdns bin/tc ; do
+            # ★ 2026-10-16 修正（第 109 轮首次实跑 run 38865414649 第 13 步发现）：openssl 与 tcpdump 的目录此前【写反了】。
+            #   上游源码依据：trunk/libs/libssl/Makefile:81   → $(ROMFSINST) $(SRC_NAME)/apps/openssl /usr/bin/openssl
+            #                 trunk/user/tcpdump/Makefile romfs: → $(ROMFSINST) /usr/sbin/tcpdump
+            #   产物实测依据：第 108 轮产物 rootfs 解包 = usr/bin/openssl (572,044 B) + usr/sbin/tcpdump (334,832 B)
+            #   ⇒ 断言强度【不变】：两个二进制仍必须存在，只是把目录改对（不是放宽判据）。
+            for f in usr/bin/frpc usr/bin/lsz usr/bin/lrz usr/bin/nano usr/bin/htop usr/bin/openssl usr/bin/ttyd usr/sbin/tcpdump usr/bin/iperf3 usr/bin/smartdns bin/tc ; do
               grep -qE "(^|/)${f}\$" /tmp/rootfs-list.txt && echo "  OK   $f" || fail "缺少 $f"
             done
             echo "===== ★★ 硬需求（【不受 strict_assert 降级影响】）：frpc 必须在产物里 ====="
