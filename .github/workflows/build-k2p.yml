@@ -4,7 +4,7 @@
 # 依据：doc/D12 §16（编译规划 v2）· doc/D13 §1.7/§8（功能取舍与决策）· 第 103/106/107 轮
 # 由 hanwckf/padavan-4.4 自带的 .github/workflows/CI.yml 改造而来
 #   改动：① runs-on 20.04→22.04（20.04 已被 GitHub 弃用，不改必失败）
-#         ② 单 target（只编 K2P-final）③ 增加 toolchain 缓存
+#         ② 单 target（第 109 轮 = K2P-final2；★ 2026-10-16 已把默认值从 K2P-final 改过来）③ 增加 toolchain 缓存
 #         ④ 增加"确认 9 项用户决定是否生效"步骤
 #         ⑤ 增加"产物自检"（u-boot legacy image 头 + 双 CRC + squashfs + 尺寸）
 #         ⑥ WDT 补丁默认 **no**（★ 喂狗可用【零编译脚本】实现，不必改固件）
@@ -26,8 +26,9 @@
 #
 # ★ 需要你上传【两个文件】到自己 fork 的仓库：
 #   1) .github/workflows/build-k2p.yml            ← 本文件
-#   2) configs/K2P-final.config                   ← 05_固件构建/K2P-final.config
-#      （或放到 trunk/configs/templates/K2P-final.config；两者任一即可，脚本会自动找/复制）
+#   2) configs/K2P-final2.config                  ← 05_固件构建/K2P-final2.config
+#      （或放到 trunk/configs/templates/K2P-final2.config；两者任一即可，脚本会自动找/复制）
+#   3) patches/0003 ~ 0006（4 个补丁；不上传则"裁剪与 frp 版本"全都不生效 —— 见 §Apply v109 patches）
 #   （若 with_wdt_patch=yes，还需 patches/0001-rc-watchdog-feed-hw-wdt.patch）
 #
 # 触发：仓库页 → Actions → 左侧 "Build K2P Padavan (final)" → Run workflow
@@ -41,22 +42,33 @@ on:
       target:
         description: '编译目标（configs/templates/<名字>.config）'
         required: false
-        default: 'K2P-final'
+        default: 'K2P-final2'
       with_wdt_patch:
         description: '打 WDT 喂狗补丁？（yes / no）—— 默认 no：喂狗可用零编译脚本实现'
         required: false
         default: 'no'
+      # ★ 2026-10-16 新增：让"回退路径"真正可执行（原版把 happy path 硬写成断言 ⇒ R1/R2/R3 全被 exit 1 拦下）
+      strict_assert:
+        description: '断言是否致命（yes / no）—— 设 no：语义断言降级为 warning（改 config 重跑时用）'
+        required: false
+        default: 'yes'
+      apply_v109_patches:
+        description: '是否真正应用 0003–0006 裁剪补丁（yes / no）—— 设 no：只做 dry-run 校验，不改源码树（回退到旧配置时用）'
+        required: false
+        default: 'yes'
   push:
     tags:
       - 'v*'
 
 jobs:
   build:
-    name: build-${{ github.event.inputs.target || 'K2P-final' }}
+    name: build-${{ github.event.inputs.target || 'K2P-final2' }}
     runs-on: ubuntu-22.04
     env:
       IMAGES_DIR: /opt/images
-      TARGET: ${{ github.event.inputs.target || 'K2P-final' }}
+      TARGET: ${{ github.event.inputs.target || 'K2P-final2' }}
+      STRICT_ASSERT: ${{ github.event.inputs.strict_assert || 'yes' }}
+      APPLY_V109_PATCHES: ${{ github.event.inputs.apply_v109_patches || 'yes' }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -89,13 +101,53 @@ jobs:
         run: |
           set -e
           F="trunk/configs/templates/${TARGET}.config"
-          echo "===== user decisions (expect 5 x n + 4 x y) ====="
-          for k in DOGCOM MINIEAP NJIT_CLIENT SRELAY EAP_PEAP SMARTDNS QOS IMQ IFB; do
-            v=$(grep -m1 "^CONFIG_FIRMWARE_INCLUDE_${k}=" "$F" || echo "(missing)")
-            printf "  %-12s %s\n" "$k" "$v"
-          done
+          # strict_assert=no ⇒ 断言降级为 warning（改 config 重跑 / 回退时用，见交接单 §7）
+          FAILED=0
+          # ★ 累积式断言：一次列全所有不符项（不 fail-fast），末尾统一退出
+          fail() { if [ "$STRICT_ASSERT" = "no" ]; then echo "::warning::$*"; else echo "::error::$*"; FAILED=1; fi; }
+          must() { # must <期望后缀> <键名...>
+            want="$1"; shift
+            for k in "$@"; do
+              v=$(grep -m1 "^CONFIG_FIRMWARE_INCLUDE_${k}=" "$F" || echo "(missing)")
+              case "$v" in *"=$want") echo "  OK   $v" ;; *) fail "expect =$want but got: $v" ;; esac
+            done
+          }
+          echo "===== [第108轮] 用户决定：5 x n + 4 x y（★ 原版只打印不断言，现已改为断言）====="
+          must n DOGCOM MINIEAP NJIT_CLIENT SRELAY EAP_PEAP
+          must y SMARTDNS QOS IMQ IFB
+          echo "===== [第109轮] 必须存在且正确的 4 项 ====="
+          must n OPENVPN XUPNPD
+          must y LRZSZ FRPC
+          echo "===== [第109轮] 用户明确保留（勿被裁掉）—— NANO / HTOP 必须 =y ====="
+          must y NANO HTOP
+          echo "===== [用户 6 条硬约束之④]「TCPDUMP/TTYD/IPERF3 需要有」必须 =y（★ 新增）====="
+          must y TCPDUMP TTYD IPERF3
+          echo "===== 其余保留项（防误裁；★ 新增）====="
+          must y OPENSSH SFTP OPENSSL_EXE CURL VLMCSD WIREGUARD IPSET LANG_CN SFE
           echo "===== coremark (no switch; from user/Makefile dir_y) ====="
-          grep -n "dir_y.*coremark" trunk/user/Makefile || echo "  WARN not found - check baseline is hanwckf, not MeIsReallyBa"
+          grep -n "dir_y.*coremark" trunk/user/Makefile || fail "coremark 行缺失 - 基线不是 hanwckf？（应为 trunk/user/Makefile 的 dir_y += coremark）"
+          echo "===== ★★ 硬需求（【不受 strict_assert 降级影响】）：FRPC 必须 =y / FRPS 必须 =n ====="
+          # 依据：用户 2026-10-16 明确「新固件必须包含 frpc，以后要用，还得能代理别的端口」。
+          # ⇒ FRPC **禁止**被当作"体积超限"的回退手段（替代回退序列见 编译交接单 §7）。
+          # ⇒ 因此这里不走 fail()（会被 strict_assert=no 降级成 warning），而是**直接 exit 1**。
+          FRPCLINE=$(grep -m1 '^CONFIG_FIRMWARE_INCLUDE_FRPC=' "$F" || echo '(missing)')
+          case "$FRPCLINE" in
+            *=y) echo "  OK   $FRPCLINE（硬需求满足）" ;;
+            *) echo "::error::FRPC 是硬需求（用户要求「新固件必须包含 frpc」），当前 = $FRPCLINE；不可关闭，也不可作为体积回退手段（改用交接单 §7 的替代序列）"; exit 1 ;;
+          esac
+          # FRPS=n 是【体积闸门】，不是功能取舍：上游 trunk/user/frp/Makefile 的 romfs: 段
+          #   只在 CONFIG_FIRMWARE_INCLUDE_FRPS=y 时额外装 /usr/bin/frps（21,233,857 B）。
+          #   实测（128 KiB 分块 xz preset6，参数源自 squashfs-tools xz_wrapper.c 的
+          #   lzma_lzma_preset(LZMA_PRESET_DEFAULT) + dict_size=block_size）：frps 压缩后 5,362,956 B
+          #   ⇒ 若误开 FRPS=y，预计镜像 ≈ 18,738,035 B，**超出 mtd3 上限 2,812,787 B**，
+          #     必被第 13 步 'Verify built image' 拦下。与其到第 13 步才炸，不如在这里说清。
+          #   AP 上只需要 frpc（客户端）；frps 跑在 VPS 上，与固件无关。
+          FRPSLINE=$(grep -m1 '^CONFIG_FIRMWARE_INCLUDE_FRPS=' "$F" || echo '(missing)')
+          case "$FRPSLINE" in
+            *=n) echo "  OK   $FRPSLINE（体积闸门：不把 frps 塞进固件）" ;;
+            *) echo "::error::FRPS 必须 =n：frps（21,233,857 B → xz 后 5,362,956 B）会把镜像撑到 ≈18,738,035 B，超出 mtd3 上限 15,925,248 B 达 2,812,787 B；AP 只需 frpc，frps 应在 VPS 上运行。当前 = $FRPSLINE"; exit 1 ;;
+          esac
+          [ "$FAILED" = "0" ] || { echo "::error::config 断言未全部通过（见上文 ::error:: 行）"; exit 1; }
 
       - name: Show expected version string
         run: |
@@ -119,6 +171,65 @@ jobs:
           patch -p1 < "$P"
           grep -n "hw_wdt_feed" trunk/user/rc/watchdog.c | head
 
+      # ---- ★ 第 109 轮：裁剪补丁 + frp 版本对齐（默认应用；含 0003——它此前从未被应用）----
+      #  0003 miniupnpd portinuse/leasefile 修复（第103轮移植成果，此前一直被漏掉）
+      #  0004 删 Makefile 5 项：infosvr / udpxy / lanauth / 802.1x / xl2tpd
+      #  0005 frp/Makefile：FRP_VER 0.29.0 → 0.71.1（与 VPS 上 frps 对齐）
+      #  0006 删 Makefile 1 项：poptop（PPTP 服务端）
+      # ★ 2026-10-16：apply_v109_patches=no ⇒ 只 dry-run 校验、不改源码树（回退到旧配置时用）
+      - name: Apply v109 patches (0003 / 0004 / 0005 / 0006)
+        run: |
+          set -e
+          FAILED=0
+          # ★ 累积式断言：一次列全所有不符项（不 fail-fast），末尾统一退出
+          fail() { if [ "$STRICT_ASSERT" = "no" ]; then echo "::warning::$*"; else echo "::error::$*"; FAILED=1; fi; }
+          for P in patches/0003-miniupnpd-portinuse-leasefile.patch \
+                   patches/0004-user-Makefile-drop-infosvr-lanauth-8021x.patch \
+                   patches/0005-frp-Makefile-bump-FRP_VER-to-0.71.1.patch \
+                   patches/0006-user-Makefile-drop-poptop.patch ; do
+            if [ ! -f "$P" ]; then echo "::error::patch not found: $P"; exit 1; fi
+            echo "================ $P ================"
+            patch -p1 --dry-run < "$P"
+            if [ "$APPLY_V109_PATCHES" = "no" ]; then
+              echo "  (apply_v109_patches=no ⇒ 只 dry-run，不改源码树)"
+            else
+              patch -p1 < "$P"
+            fi
+          done
+          if [ "$APPLY_V109_PATCHES" = "no" ]; then
+            echo "===== 未应用补丁 ⇒ 跳过「6 项应全部消失」断言 ====="
+          else
+            echo "===== verify: Makefile 中 6 项应全部消失 ====="
+            for d in infosvr udpxy lanauth 802.1x xl2tpd poptop ; do
+              if grep -q "dir_y.*+= $d\$" trunk/user/Makefile ; then
+                fail "still present -> dir_y += $d"
+              else
+                echo "  OK removed: $d"
+              fi
+            done
+            echo "===== verify: frp 版本 ====="
+            grep -n 'FRP_VER :=' trunk/user/frp/Makefile
+            grep -q 'FRP_VER := 0.71.1' trunk/user/frp/Makefile || fail "FRP_VER 不是 0.71.1"
+            echo "===== verify: 保留项仍在（coremark / inadyn / miniupnpd / wpa_supplicant）====="
+            for d in coremark inadyn miniupnpd wpa_supplicant ; do
+              grep -qE "dir_[a-z]*.*$d" trunk/user/Makefile || fail "保留项缺失: $d"
+            done
+          fi
+          [ "$FAILED" = "0" ] || { echo "::error::补丁断言未全部通过（见上文 ::error:: 行）"; exit 1; }
+
+      # ---- 余量预检：本轮的体积假设（★ 2026-10-16 按 v1/v2/v3 复核修正数字）----
+      - name: Headroom sanity (v109 expectation)
+        run: |
+          echo "mtd3 firmware 上限        = 15,925,248 B (0xF30000 · /proc/mtd 实测 · 三重算术自洽)"
+          echo "上一版镜像 (ae2a126)      =  9,322,565 B (md5 85f4287f...)"
+          echo "本轮 +frpc                =  4,524,160 B  ← 真二进制实测（128K 分块 xz preset6，参数取自 squashfs-tools/xz_wrapper.c）；strip 后只会更小 ⇒ 此值为上限"
+          echo "本轮 +lrzsz(lrz+lsz)      ≈   +60 KB 上下  ← 新增组件（LRZSZ n→y），量级极小，未单独实测（估算口径，见 doc/D12 §F.17 附注）"
+          echo "本轮 -裁剪(9 组件)        =    471,646 B  ← 按各组件 romfs 归属实测"
+          echo "=> 预计镜像 ≈ 13.43 MB ⇒ 余量 ≈ 2.49 MB (≈15.6%)；最坏（删除集合落空）13.90 MB ⇒ 余 ≈13.0% 仍装得下"
+          echo "⚠️ 真正的尺寸/CRC 闸门 = 下一步 'Verify built image'（超限即 ::error:: 退出）"
+          echo "   —— CI 里不会出现 'image too big' 字样（那是网页刷机侧的话术）"
+          echo "⚠️ 若要回退改 config：dispatch 必须同时设 strict_assert=no，否则会被本 workflow 断言拦下"
+
       # ---- toolchain：预编译 tar.xz，命中缓存则秒过 ----
       - name: Cache toolchain
         uses: actions/cache@v4
@@ -138,6 +249,58 @@ jobs:
           fakeroot ./build_firmware_ci ${TARGET}
           cp -f images/*.trx ${IMAGES_DIR}/
           ls -lh ${IMAGES_DIR}/
+
+      # ---- ★ 2026-10-16 新增：「裁剪真的生效了吗」在编译阶段闭环（不必等刷机）----
+      #   依据：复核报告 v2 §7-G。trunk/tools/Makefile 的 all: 会构建 mksquashfs_xz（内含 unsquashfs），
+      #   且 vendors/Ralink/Makefile 的 romfs.post:: 把 squashfs 写成 images/ramdisk ⇒ 零额外安装即可查。
+      #   （等价做法：本地用 04 工具脚本解 .trx；本步在 CI 内做，失败即 ::error::）
+      - name: Verify trim & new components in rootfs
+        run: |
+          set -e
+          FAILED=0
+          # ★ 累积式断言：一次列全所有不符项（不 fail-fast），末尾统一退出
+          fail() { if [ "$STRICT_ASSERT" = "no" ]; then echo "::warning::$*"; else echo "::error::$*"; FAILED=1; fi; }
+          # ① 0003 是否真生效（编译中间产物，未压缩，最可靠）
+          for m in CHECK_PORTINUSE ENABLE_LEASEFILE ; do
+            grep -q "^#define $m\$" trunk/user/miniupnpd/miniupnpd-2.x/config.h \
+              && echo "  OK   miniupnpd config.h: #define $m" \
+              || fail "0003 未生效：miniupnpd-2.x/config.h 缺 #define $m"
+          done
+          # ② 版本串是否真嵌入（FWREVSTR 只有 7 位 hash；★ 路径是 /sbin/rc，不是 /usr/sbin/rc）
+          H=$(git rev-parse --short=7 HEAD)
+          if [ -z "$H" ]; then fail "git rev-parse 为空 ⇒ versions.inc 的 \$(shell git ...) 静默失败"; fi
+          strings trunk/romfs/sbin/rc | grep -q "$H" \
+            && echo "  OK   romfs/sbin/rc 内嵌本次提交 hash: $H" \
+            || fail "romfs/sbin/rc 未嵌入 $H（FWREVSTR 注入失败？）"
+          # ③ 产物内容断言
+          U=trunk/tools/mksquashfs_xz/unsquashfs ; R=trunk/images/ramdisk
+          if [ ! -x "$U" ] || [ ! -f "$R" ]; then
+            fail "找不到 $U 或 $R（构建树布局变了）⇒ 本步降级；请本地解 .trx 复核内容"
+          else
+            "$U" -ll "$R" > /tmp/rootfs-list.txt 2>/dev/null || fail "unsquashfs 解析失败: $R"
+            echo "  rootfs 条目数: $(wc -l < /tmp/rootfs-list.txt)"
+            echo "===== 必须【存在】 ====="
+            for f in usr/bin/frpc usr/bin/lsz usr/bin/lrz usr/bin/nano usr/bin/htop usr/sbin/openssl usr/bin/ttyd usr/bin/tcpdump usr/bin/iperf3 usr/bin/smartdns bin/tc ; do
+              grep -qE "(^|/)${f}\$" /tmp/rootfs-list.txt && echo "  OK   $f" || fail "缺少 $f"
+            done
+            echo "===== ★★ 硬需求（【不受 strict_assert 降级影响】）：frpc 必须在产物里 ====="
+            # 依据同上：用户明确「新固件必须包含 frpc」。此处直接 exit 1，不走 fail() 降级。
+            grep -qE "(^|/)usr/bin/frpc\$" /tmp/rootfs-list.txt \
+              && echo "  OK   usr/bin/frpc（硬需求，产物已含）" \
+              || { echo "::error::产物 rootfs 缺少 usr/bin/frpc —— 用户要求「新固件必须包含 frpc」"; exit 1; }
+            # 版本闸门：证明 patches/0005（FRP_VER 0.29.0 → 0.71.1）真的应用了
+            #   ★ 0.71.1 是官方 mipsle 包确认存在的版本；且该二进制已在 AP1 上实测可运行（03_原始证据/r109e）
+            grep -q "^FRP_VER := 0.71.1\$" trunk/user/frp/Makefile \
+              && echo "  OK   FRP_VER := 0.71.1（0005 已生效）" \
+              || fail "FRP_VER 不是 0.71.1（patches/0005 未生效？）：$(grep -m1 '^FRP_VER' trunk/user/frp/Makefile || echo '(missing)')"
+            echo "===== 必须【不存在】（本轮裁剪项）====="
+            # ⚠️ bin/rt2860apd 是 802.1x 包产物（AP 侧 WPA-Enterprise/RADIUS 认证器）；
+            #    本机 auth_mode=psk ⇒ 从不启动 ⇒ 随包删除。若将来要 WPA-Enterprise，必须恢复该包。
+            for f in usr/sbin/infosvr usr/sbin/lanauth usr/sbin/udpxy usr/sbin/xl2tpd usr/sbin/pptpd usr/sbin/pptpctrl usr/sbin/bcrelay usr/sbin/openvpn usr/bin/openvpn-cert.sh usr/bin/xupnpd bin/rt2860apd ; do
+              if grep -qE "(^|/)${f}\$" /tmp/rootfs-list.txt ; then fail "仍存在（裁剪未生效）: $f"; else echo "  OK   已移除 $f"; fi
+            done
+          fi
+          [ "$FAILED" = "0" ] || { echo "::error::产物内容断言未全部通过（见上文 ::error:: 行）"; exit 1; }
 
       # ---- 产物自检（u-boot legacy image 头 + 双 CRC + squashfs 魔数 + 加载地址 + 尺寸）----
       # ★ 2026-10-15 修正：原实现按【Broadcom trx 头】布局解析（b[4:8]=len, b[8:12]=crc），
