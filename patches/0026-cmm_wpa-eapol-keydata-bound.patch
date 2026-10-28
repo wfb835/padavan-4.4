@@ -1,0 +1,19 @@
+--- a/trunk/linux-4.4.x/drivers/net/wireless/mediatek/mt7615/embedded/security/cmm_wpa.c
++++ b/trunk/linux-4.4.x/drivers/net/wireless/mediatek/mt7615/embedded/security/cmm_wpa.c
+@@ -4251,6 +4251,16 @@
+ 	/* 2. Extract the context of the Key Data field if it exist.	 */
+ 	/* The field in pairwise_msg_2_WPA1(WPA2) & pairwise_msg_3_WPA1 is clear.*/
+ 	/* The field in group_msg_1_WPA1(WPA2) & pairwise_msg_3_WPA2 is encrypted.*/
++	/* F77-1: KEYDATA 是 os_alloc_mem(MAX_LEN_OF_RSNIE) 的小堆块，而下面所有
++	 * 分支都按帧内的 Key Data Length 原样拷贝、无上界 ⇒ 帧控 ~2 KB 堆溢出。 */
++	if (CONV_ARRARY_TO_UINT16(key_data_len_ptr) > MAX_LEN_OF_RSNIE) {
++		MTWF_LOG(DBG_CAT_SEC, DBG_SUBCAT_ALL, DBG_LVL_ERROR,
++				 ("%s(): Key Data length %u > MAX_LEN_OF_RSNIE(%u), dropped\n",
++				  __func__, (unsigned int)CONV_ARRARY_TO_UINT16(key_data_len_ptr),
++				  (unsigned int)MAX_LEN_OF_RSNIE));
++		goto LabelErr;
++	}
++
+ 	if (CONV_ARRARY_TO_UINT16(key_data_len_ptr) > 0) {
+ 		UCHAR GroupKeyIndex = 0;
+ 
