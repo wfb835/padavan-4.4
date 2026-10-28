@@ -1,0 +1,8 @@
+--- a/trunk/libs/libpcap/Makefile	2026-10-23 15:18:35.728391100 +0800
++++ b/trunk/libs/libpcap/Makefile	2026-10-23 15:18:36.963132900 +0800
+@@ -1,4 +1,4 @@
+-SRC_NAME=libpcap-1.9.1
++SRC_NAME=libpcap-1.10.7
+ SRC_URL=http://www.tcpdump.org/release/$(SRC_NAME).tar.gz
+ 
+ all: download_test extract_test config_test
