@@ -24,11 +24,22 @@
 #                         证据：对 02_配置备份/回退镜像_20261015/K2P_4.4.3.9_recovered.trx 实测。
 #                         旧版留存 build-k2p.yml.bak_20261015_1828
 #
+#   v3  2026-10-25（第 182 轮）两处加固，均为第 181/182 轮对抗复核的直接产物：
+#       ① **R-04 基线钉死**：`actions/checkout@v4` 加 `ref: 955cf611498fda5fa6ece2c7197f4234573b47e6`。
+#          原先无 ref ⇒ 取「运行时 fork 的 main HEAD」⇒ 上游任何新提交都会静默改变基线，
+#          使 20 个补丁与 49 处断言整体失效；这与预飞检查报告「钉 SHA 取件」自相矛盾。
+#       ② **R-13 工具链校验**：`Prepare toolchain` 增加 md5/sha256 钉死校验
+#          （`d0d96e64acf0ff115dca6ef678ce3f99` / `928db92fb2dd2d9f7cc540a40cbadaa2224b582e7b186f46c743d458ad768dc6`，
+#           第 180 轮实测值）。release 无官方 digest，且 `dl_toolchain.sh` 的 `curl -O -L` 不校验
+#          ⇒ 原本「换 tag 静默换 libc」这条 P1 风险在流水线上零拦截点。
+#       备份：`_维护记录/_第182轮_补丁修复前备份/build-k2p.yml`
+#
 # ★ 需要你上传【两个文件】到自己 fork 的仓库：
 #   1) .github/workflows/build-k2p.yml            ← 本文件
 #   2) configs/K2P-final2.config                  ← 05_固件构建/K2P-final2.config
 #      （或放到 trunk/configs/templates/K2P-final2.config；两者任一即可，脚本会自动找/复制）
-#   3) patches/0003 ~ 0006（4 个补丁；不上传则"裁剪与 frp 版本"全都不生效 —— 见 §Apply v109 patches）
+#   3) patches/0003 ~ 0050（**43 个补丁**，缺任一个都会在 §Apply v109 patches 步被 ::error:: 拦下）
+#      上传用脚本：04_工具脚本/r109h_gh_cloud_build.py（UPLOADS 已列全 46 条；第 208 轮加 0047/0048，第 210 轮加 0049/0050）
 #   （若 with_wdt_patch=yes，还需 patches/0001-rc-watchdog-feed-hw-wdt.patch）
 #
 # 触发：仓库页 → Actions → 左侧 "Build K2P Padavan (final)" → Run workflow
@@ -44,9 +55,9 @@ on:
         required: false
         default: 'K2P-final2'
       with_wdt_patch:
-        description: '打 WDT 喂狗补丁？（yes / no）—— 默认 no：喂狗可用零编译脚本实现'
+        description: '打 WDT 喂狗补丁 0001？（yes / no）—— ★ 2026-10-26 用户拍板：默认 yes'
         required: false
-        default: 'no'
+        default: 'yes'
       # ★ 2026-10-16 新增：让"回退路径"真正可执行（原版把 happy path 硬写成断言 ⇒ R1/R2/R3 全被 exit 1 拦下）
       strict_assert:
         description: '断言是否致命（yes / no）—— 设 no：语义断言降级为 warning（改 config 重跑时用）'
@@ -70,8 +81,19 @@ jobs:
       STRICT_ASSERT: ${{ github.event.inputs.strict_assert || 'yes' }}
       APPLY_V109_PATCHES: ${{ github.event.inputs.apply_v109_patches || 'yes' }}
     steps:
+      # ---- 基线钉死（R-04 fix, 第 182 轮）----
+      #   背景：原先只用 actions/checkout@v4（无 ref），取的是「运行时 fork 的 main HEAD」。
+      #   上游任何新提交都会静默改变基线，使 20 个补丁与 49 处断言整体失效；
+      #   而 05_固件构建/github-actions/预飞检查报告_20261015.md:7 声称「钉 SHA 取件，非浮动
+      #   HEAD」、doc/D12 要求「必须钉住」⇒ 原状态与归档自相矛盾。
+      #   955cf611498fda5fa6ece2c7197f4234573b47e6 = 现行固件（wfb835/padavan-4.4 main）构建提交。
+      #   ★ 若要升级基线：改下面 sha，并同步 05_固件构建/K2P-final2.config 的版本说明与
+      #     04_工具脚本/r109h_gh_cloud_build.py 的期望 md5。
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          ref: 955cf611498fda5fa6ece2c7197f4234573b47e6
+          persist-credentials: false
 
       - name: Install dependencies
         run: |
@@ -169,6 +191,16 @@ jobs:
           patch -p1 --dry-run < "$P"
           echo "== apply =="
           patch -p1 < "$P"
+          # ★ 2026-10-26：原写法 `grep -n ... | head` 的退出码来自 head，恒 0 ⇒ 断言形同虚设
+          if ! grep -q "hw_wdt_feed" trunk/user/rc/watchdog.c; then
+            echo "::error::0001 未生效：watchdog.c 缺 hw_wdt_feed"
+            exit 1
+          fi
+          if ! grep -q '/dev/watchdog' trunk/user/rc/watchdog.c; then
+            echo "::error::0001 未生效：watchdog.c 未 open /dev/watchdog"
+            exit 1
+          fi
+          echo "  OK   0001 已生效（hw_wdt_feed + /dev/watchdog）"
           grep -n "hw_wdt_feed" trunk/user/rc/watchdog.c | head
 
       # ---- ★ 第 109 轮：裁剪补丁 + frp 版本对齐（默认应用；含 0003——它此前从未被应用）----
@@ -176,8 +208,11 @@ jobs:
       #  0004 删 Makefile 5 项：infosvr / udpxy / lanauth / 802.1x / xl2tpd
       #  0005 frp/Makefile：FRP_VER 0.29.0 → 0.71.1（与 VPS 上 frps 对齐）
       #  0006 删 Makefile 1 项：poptop（PPTP 服务端）
+      #  0007 删 Web 页内 infosvr 开关（www/n56u_ribbon_fixed/Advanced_Services_Content.asp）—— 第 110 轮「去无效入口」
+      #  0008 删 VPN 三页 + VPN 下拉项（★ 真路径 www/n56u_ribbon_fixed/device-map/internet.asp，非 www 根）
+      #       + www/Makefile 加删除行 —— 第 110 轮「去无效入口」
       # ★ 2026-10-16：apply_v109_patches=no ⇒ 只 dry-run 校验、不改源码树（回退到旧配置时用）
-      - name: Apply v109 patches (0003 / 0004 / 0005 / 0006)
+      - name: Apply patches 0003 ~ 0050 (trim + frp + ttyd + M9 + libs + openssl + P1 + auth + WNM/raeth/staticmac + TX timeout + Andes seq0 + UI mem + multi-client login)
         run: |
           set -e
           FAILED=0
@@ -186,7 +221,46 @@ jobs:
           for P in patches/0003-miniupnpd-portinuse-leasefile.patch \
                    patches/0004-user-Makefile-drop-infosvr-lanauth-8021x.patch \
                    patches/0005-frp-Makefile-bump-FRP_VER-to-0.71.1.patch \
-                   patches/0006-user-Makefile-drop-poptop.patch ; do
+                   patches/0006-user-Makefile-drop-poptop.patch \
+                   patches/0007-www-drop-infosvr-toggle.patch \
+                   patches/0008-www-drop-vpn-pages.patch \
+                   patches/0009-ttyd-bump-1.7.7-with-W.patch \
+                   patches/0010-igmp-snoop-bounds-fix.patch \
+                   patches/0011-libz-bump-1.2.13.patch \
+                   patches/0012-libpcap-bump-1.10.7.patch \
+                   patches/0013-libuv-bump-1.53.0.patch \
+                   patches/0014-libjson-c-bump-0.18.patch \
+                   patches/0015-openssl-1.1.1w.patch \
+                   patches/0016-curl-7.88.1.patch \
+                   patches/0017-ncurses-6.5.patch \
+                   patches/0018-defaults-lan_proto_x-0.patch \
+                   patches/0019-mlme-auth-frame-length.patch \
+                   patches/0020-libwebsockets-4.5.8.patch \
+                   patches/0021-raeth-rx-length-guard.patch \
+                   patches/0022-vlmcsd-rpcbind-int-overflow.patch \
+                   patches/0023-cmm_sanity-ch-switch-wrapper-bounds.patch \
+                   patches/0024-cmm_sanity-wsc-ie-append-bounds.patch \
+                   patches/0025-bss_ops-varie-length-bound.patch \
+                   patches/0026-cmm_wpa-eapol-keydata-bound.patch \
+                   patches/0027-cmm_wpa-gtklen-upper-bound.patch \
+                   patches/0028-wnm-btm-query-minlen.patch \
+                   patches/0029-wnm-btm-event-buflen-width.patch \
+                   patches/0030-web-sys-script-whitelist.patch \
+                   patches/0031-web-ej-dump-path-traversal.patch \
+                   patches/0032-web-httpd-auth-state-gate.patch \
+                   patches/0033-wnm-action-minlen-all-handlers.patch \
+                   patches/0034-raeth-ioctl-require-cap-net-admin.patch \
+                   patches/0035-rc-dhcp-staticmac-hex.patch \
+                   patches/0036-mt7615-ioctl-require-cap-net-admin.patch \
+                   patches/0042-raeth-pdma-page-lock-irqsave.patch \
+                   patches/0043-raeth-esw-irq-free-dev-id.patch \
+                   patches/0044-rc-k2p-syslog-buffer-1mb.patch \
+                   patches/0045-andes-seq-retry-cap.patch \
+                   patches/0046-raeth-virtualif-ioctl-copy-check.patch \
+                   patches/0047-raeth-pdma-tx-done-timeout.patch \
+                   patches/0048-andes-seq0-timeout-no-assert.patch \
+                   patches/0049-web-ui-mem-available.patch \
+                   patches/0050-httpd-multi-client-login.patch ; do
             if [ ! -f "$P" ]; then echo "::error::patch not found: $P"; exit 1; fi
             echo "================ $P ================"
             patch -p1 --dry-run < "$P"
@@ -199,7 +273,59 @@ jobs:
           if [ "$APPLY_V109_PATCHES" = "no" ]; then
             echo "===== 未应用补丁 ⇒ 跳过「6 项应全部消失」断言 ====="
           else
-            echo "===== verify: Makefile 中 6 项应全部消失 ====="
+            echo "===== verify: 7 项 P1 修补特征应全部出现（第 186 轮新增）====="
+          check_grep() {   # check_grep <文件> <特征正则> <标签>
+            if grep -q "$2" "$1" ; then echo "  OK   $3" ; else fail "$3 -> 特征未出现（$1）" ; fi
+          }
+          M=trunk/linux-4.4.x/drivers/net/wireless/mediatek/mt7615/embedded
+          check_grep "$M/common/cmm_sanity.c" "UINT8 ch_sw_wrp_len"                        "F84-2 长度类型已改 UINT8"
+          check_grep "$M/common/cmm_sanity.c" "WSC IE append skipped"                      "F84-3 追加前有上界判断"
+          check_grep "$M/mgmt/bss_ops.c"      "LengthVIE <= MAX_VIE_LEN"                   "F87-1 VarIE 长度已钳制"
+          check_grep "$M/security/cmm_wpa.c"  "MAX_LEN_OF_RSNIE)"                          "F77-1 KeyData 长度已钳制"
+          check_grep "$M/security/cmm_wpa.c"  "GTKLEN > sizeof(GTK)"                       "F79-1 GTK 上界已加"
+          check_grep "$M/common/wnm.c"        "BTM Query frame too short"                  "F110-1 BTM 帧长下限已加"
+          check_grep "$M/common/wnm.c"        "BTM Rsp frame too short"                    "R-194-2 BTM Rsp 帧长下限已加"
+          check_grep "$M/common/wnm.c"        "WNM Notify Req too short"                   "R-194-1 WNM Notify Req 帧长下限已加"
+          check_grep "$M/common/wnm.c"        "WNM Notify Rsp too short"                   "R-194-3 WNM Notify Rsp 帧长下限已加"
+          check_grep "$M/common/cmm_sanity.c" "subelement + 2, len_subelement"              "R-194-5 wb_info 源偏移已跳过子元素头"
+          check_grep "trunk/user/httpd/httpd.c" "handler->need_auth && !do_logout"          "R-194-6 need_auth 不再对 localhost 免认证"
+          check_grep "trunk/linux-4.4.x/drivers/net/ethernet/raeth/raether.c" "capable(CAP_NET_ADMIN)" "R-194-4 ei_ioctl 已要求 CAP_NET_ADMIN"
+          check_grep "trunk/user/rc/services_ex.c" "strspn(smac," "R-194-7 dhcp_staticmac 已校验十六进制"
+          check_grep "$M/common/wnm.c"        "UINT32 buflen"                              "F117-1 buflen 已改 32 位"
+          echo "===== verify: 第 205 轮稳定性补丁（0036/0042/0043）====="
+          check_grep "trunk/linux-4.4.x/drivers/net/wireless/mediatek/mt7615/os/linux/ap_ioctl.c" "cmd <= SIOCIWLASTPRIV" "0036 mt7615 私有 ioctl 已加范围权限门"
+          check_grep "trunk/linux-4.4.x/drivers/net/ethernet/raeth/raether_pdma.c" "spin_lock_irqsave(&ei_local->page_lock, flags)" "R-200-2 xmit 已改 irqsave"
+          if grep -q "spin_lock(&ei_local->page_lock)" trunk/linux-4.4.x/drivers/net/ethernet/raeth/raether_pdma.c ; then
+            fail "R-200-2 仍存在裸 spin_lock(page_lock)"
+          else
+            echo "  OK   裸 spin_lock(page_lock) 已清零"
+          fi
+          check_grep "trunk/linux-4.4.x/drivers/net/ethernet/raeth/raether.c" "free_irq(ei_local->esw_irq, NULL)" "R-200-1 MT7621 free_irq 用 dev_id=NULL"
+          echo "===== verify: 第 206 轮稳定性补丁（0044/0045/0046）====="
+          check_grep "trunk/user/rc/rc.h" "defined(BOARD_K2P) && (BOARD_RAM_SIZE == 128)" "0044 K2P syslog 1MB 覆盖已生效"
+          check_grep "trunk/linux-4.4.x/drivers/net/wireless/mediatek/mt7615/embedded/mcu/andes_core.c" "seq alloc failed after %u retries" "0045 Andes seq 重试上限已加"
+          check_grep "trunk/linux-4.4.x/drivers/net/wireless/mediatek/mt7615/embedded/mcu/andes_core.c" "retry > 100" "0045 重试次数上限存在"
+          check_grep "trunk/linux-4.4.x/drivers/net/ethernet/raeth/raether.c" "memset(&mii, 0, sizeof(mii))" "0046 virtualif_ioctl 已初始化并检查拷贝"
+          echo "===== verify: 第 208 轮稳定性补丁（0047/0048）====="
+          check_grep "trunk/linux-4.4.x/drivers/net/ethernet/raeth/raether_pdma.c" "ei_pdma_tx_wait_done" "0047 TX DDONE 等待已改为有界"
+          if grep -q "while (ei_local->tx_ring0\[tx_cpu_owner_idx0\].txd_info2.DDONE_bit == 0)" trunk/linux-4.4.x/drivers/net/ethernet/raeth/raether_pdma.c ; then
+            fail "0047 仍存在无界 DDONE 忙等"
+          else
+            echo "  OK   无界 DDONE 忙等已清零"
+          fi
+          check_grep "trunk/linux-4.4.x/drivers/net/wireless/mediatek/mt7615/embedded/mcu/andes_core.c" "ackq was full" "0048 seq0 超时不再 dump_stack"
+          check_grep "trunk/linux-4.4.x/drivers/net/wireless/mediatek/mt7615/embedded/mcu/andes_core.c" "if (msg->seq" "0048 seq0 守卫已加"
+          echo "===== verify: 第 210 轮 UI / 多客户端登录补丁（0049/0050）====="
+          check_grep "trunk/user/httpd/web_ex.c" "MemAvailable: %lu" "0049 UI 已解析 MemAvailable"
+          check_grep "trunk/user/www/n56u_ribbon_fixed/state.js" "sysinfo.ram.available" "0049 UI 已显示 available"
+          if grep -q "skip MemAvailable" trunk/user/httpd/web_ex.c ; then
+            fail "0049 仍存在 skip MemAvailable"
+          else
+            echo "  OK   skip MemAvailable 已清除"
+          fi
+          check_grep "trunk/user/httpd/httpd.c" "allow another safe LAN/VPN client" "0050 多客户端登录已放行"
+          check_grep "trunk/user/httpd/httpd.c" "is_safe_ipaddr(ip_now) && login_safe" "0050 仅安全 IP 放行"
+          echo "===== verify: Makefile 中 6 项应全部消失 ====="
             for d in infosvr udpxy lanauth 802.1x xl2tpd poptop ; do
               if grep -q "dir_y.*+= $d\$" trunk/user/Makefile ; then
                 fail "still present -> dir_y += $d"
@@ -210,12 +336,190 @@ jobs:
             echo "===== verify: frp 版本 ====="
             grep -n 'FRP_VER :=' trunk/user/frp/Makefile
             grep -q 'FRP_VER := 0.71.1' trunk/user/frp/Makefile || fail "FRP_VER 不是 0.71.1"
+            echo "===== verify: ttyd 版本（0009，第 163 轮）====="
+            grep -n 'SRC_NAME=ttyd' trunk/user/ttyd/Makefile
+            grep -q 'SRC_NAME=ttyd-1.7.7' trunk/user/ttyd/Makefile || fail "ttyd 不是 1.7.7（0009 未生效）"
+            grep -q '\-W ' trunk/user/ttyd/ttyd.sh || fail "ttyd.sh 缺 -W（1.7.4+ 默认只读，不加 -W 登录无法输入）"
+            echo "===== verify: M9 修复（0010）====="
+            grep -q 'UINT16 PktLen' trunk/linux-4.4.x/drivers/net/wireless/mediatek/mt7615/embedded/common/igmp_snoop.c || fail "0010 未生效：igmp_snoop.c 无 PktLen"
+            grep -q 'clamp group-record walk' trunk/linux-4.4.x/drivers/net/wireless/mediatek/mt7615/embedded/common/igmp_snoop.c || fail "0010 未生效：缺循环钳位"
+            grep -q 'bound ext-header chain walk' trunk/linux-4.4.x/drivers/net/wireless/mediatek/mt7615/embedded/common/igmp_snoop.c || fail "0010 未生效：缺 MLD 扩展头钳位"
+            grep -q 'isMldPkt(pDstMacAddr, pIpHeader, &MldType, &pMldHeader, PktLen)' trunk/linux-4.4.x/drivers/net/wireless/mediatek/mt7615/embedded/common/igmp_snoop.c || fail "0010 未生效：isMldPkt 未传长度"
+            grep -q 'IgmpPktLen' trunk/linux-4.4.x/drivers/net/wireless/mediatek/mt7615/embedded/ap/ap_data.c || fail "0010 未生效：ap_data.c 调用点未传长度"
+            echo "===== verify: libs 批次升级（0011~0014）====="
+            grep -q 'SRC_NAME=zlib-1.2.13' trunk/libs/libz/Makefile || fail "0011 未生效：zlib 不是 1.2.13"
+            grep -q 'SRC_NAME=libpcap-1.10.7' trunk/libs/libpcap/Makefile || fail "0012 未生效：libpcap 不是 1.10.7"
+            grep -q 'SRC_NAME=libuv-v1.53.0' trunk/libs/libuv/Makefile || fail "0013 未生效：libuv 不是 1.53.0"
+            grep -q 'SRC_NAME=json-c-json-c-0.18' trunk/libs/libjson-c/Makefile || fail "0014 未生效：json-c 不是 0.18"
+            echo "===== verify: OpenSSL 1.1.1w（0015）====="
+            grep -q 'SRC_NAME=openssl-1.1.1w' trunk/libs/libssl/Makefile || fail "0015 未生效：openssl 不是 1.1.1w"
+            test -f trunk/libs/libssl/openssl-1.1.1w.patch || fail "0015 未生效：w 版补丁文件缺失"
+            grep -q 'OPENSSL_PREFER_CHACHA_OVER_GCM' trunk/libs/libssl/openssl-1.1.1w.patch || fail "0015 补丁内容异常：缺 CHACHA 选项"
+            echo "===== verify: curl 7.88.1（0016）====="
+            grep -q 'SRC_NAME=curl-7.88.1' trunk/libs/libcurl/Makefile || fail "0016 未生效：curl 不是 7.88.1"
+            # 第 187 轮 A11：包必须是 release dist 版（含 lib/Makefile.in），否则 codeload 版会静默少文件
+            grep -q 'lib/Makefile.in' trunk/libs/libcurl/Makefile || fail "0016 未生效：缺 release 包校验（lib/Makefile.in 守卫）"
+            test -f trunk/libs/libcurl/no_docs_test-7.88.1.patch || fail "0016 未生效：7.88.1 补丁文件缺失"
+            echo "===== verify: ncurses 6.5（0017）====="
+            grep -q 'SRC_NAME=ncurses-6.5' trunk/libs/libncurses/Makefile || fail "0017 未生效：ncurses 不是 6.5"
+            test -f trunk/libs/libncurses/ncurses-6.5.patch || fail "0017 未生效：6.5 补丁文件缺失"
+            grep -q 'tar -xzf' trunk/libs/libncurses/Makefile || fail "0017 未生效：extract 未改为 tar"
+            echo "===== verify: lan_proto_x 默认值（0018）====="
+            grep -q '"lan_proto_x", "0"' trunk/user/shared/defaults.c || fail "0018 未生效：lan_proto_x 默认值仍为 1"
+            echo "===== verify: 管理帧最小长度（0019 · 第 190 轮扩为全族）====="
+            MLME=trunk/linux-4.4.x/drivers/net/wireless/mediatek/mt7615/embedded/common/mlme.c
+            grep -q 'drop short mgmt frame' "$MLME" || fail "0019 未生效：缺管理帧长度守卫"
+            # A3：守卫必须在【所有】MsgTypeSubst 分派之前，且早于 bToApCli 分支
+            #     （第 183 轮 R-183-1：原守卫写在 bToApCli 块内 ⇒ 纯 AP 路径裸奔）
+            G=$(grep -n 'drop short mgmt frame' "$MLME" | head -1 | cut -d: -f1)
+            A=$(grep -n 'ApCliMsgTypeSubst(pAd, pFrame' "$MLME" | head -1 | cut -d: -f1)
+            B=$(grep -n 'if ((ApBssIdx_find == FALSE) &&' "$MLME" | head -1 | cut -d: -f1)
+            P=$(grep -n 'if (APMsgTypeSubst(pAd, pFrame' "$MLME" | head -1 | cut -d: -f1)
+            if [ -n "$G" ] && [ -n "$A" ] && [ -n "$B" ] && [ -n "$P" ] && [ "$G" -lt "$B" ] && [ "$G" -lt "$A" ] && [ "$G" -lt "$P" ]; then
+              echo "  OK   0019 守卫在 AP/APCLI 分派之前（guard=$G < bToApCli=$B < apcli=$A / ap=$P）"
+            else
+              fail "0019 守卫位置不对：guard=$G bToApCli=$B apcli=$A ap=$P（守卫必须在全部之前）"
+            fi
+            for T in SUBTYPE_ASSOC_REQ SUBTYPE_REASSOC_REQ SUBTYPE_DISASSOC SUBTYPE_DEAUTH SUBTYPE_ACTION min_len ; do
+              grep -q "$T" "$MLME" || fail "0019 未生效：管理帧全族表缺 $T"
+            done
+            grep -q 'case SUBTYPE_ACTION_NO_ACK:' "$MLME" || fail "0019 未生效：全族表缺 ACTION_NO_ACK(14)"
+            echo "  OK   0019 管理帧全族最小长度表齐备（含 ACTION_NO_ACK）"
+            echo "===== verify: sys_script 白名单（0030 F20-1）====="
+            grep -q 'strspn(name, "abcdefghijklmnopqrstuvwxyz' trunk/user/httpd/web_ex.c || fail "0030 未生效：缺脚本名白名单"
+            echo "===== verify: ej_dump 路径穿越（0031 F44-1）====="
+            grep -q "strchr(file, '/')" trunk/user/httpd/web_ex.c || fail "0031 未生效：缺文件名校验"
+            echo "===== verify: httpd 认证门（0032 r3 · need_auth 一律认证；仅放行 watchdog 探测 GET）====="
+            # ★ 2026-10-27 第 198 轮：r3 保留 localhost 的**只读探测**豁免，只放行
+            #   `GET httpd_check.htm`。rc/watchdog.c:116 无凭据 wget 该 URL 并 grep
+            #   "ASUSTeK"；旧 0032 把探测一并拒掉，watchdog.c:389 会每 90 s kill -9 httpd。
+            #   负向断言只看代码行写法（`handler->need_auth && login_state ...`），
+            #   注释里引用旧条件 `login_state > 1` 不再误判。
+            grep -q 'handler->need_auth && !do_logout' trunk/user/httpd/httpd.c || fail "0032 未生效：认证门未改为 need_auth && !do_logout"
+            grep -q 'strcmp(file, "httpd_check.htm") == 0' trunk/user/httpd/httpd.c || fail "0032r3 未生效：缺 watchdog 探测豁免"
+            if grep -qE 'handler->need_auth && login_state (>|!=) 1' trunk/user/httpd/httpd.c; then
+              fail "0032 未生效：旧门控（handler->need_auth && login_state > 1）仍残留"
+            else
+              echo "  OK   0032r3 门控 = need_auth && !do_logout，仅 httpd_check.htm 的 GET 豁免"
+            fi
+            echo "===== verify: libwebsockets 4.5.8（0020）====="
+            grep -q 'SRC_NAME=libwebsockets-4.5.8' trunk/libs/libwebsockets/Makefile || fail "0020 未生效：lws 不是 4.5.8"
+            test -f trunk/libs/libwebsockets/libwebsockets-4.5.8.patch || fail "0020 未生效：4.5.8 补丁文件缺失"
+            echo "===== verify: raeth RX 长度守卫（0021）====="
+            grep -q 'R177 fix: PLEN0 is a 14-bit field' trunk/linux-4.4.x/drivers/net/ethernet/raeth/raether.c || fail "0021 未生效：raether.c 缺 PLEN0 长度守卫"
+            grep -q 'rx_recycle_desc' trunk/linux-4.4.x/drivers/net/ethernet/raeth/raether.c || fail "0021 未生效：缺描述符回收标签"
+            echo "===== verify: vlmcsd RPC bind 整数溢出（0022）====="
+            grep -q 'vlmcsd-rpcbind-overflow.patch' trunk/user/vlmcsd/Makefile || fail "0022 未生效：Makefile 未挂载解压后补丁"
+            test -f trunk/user/vlmcsd/vlmcsd-rpcbind-overflow.patch || fail "0022 未生效：内层补丁文件缺失"
+            grep -q 'R178 fix' trunk/user/vlmcsd/vlmcsd-rpcbind-overflow.patch || fail "0022 内层补丁内容异常"
             echo "===== verify: 保留项仍在（coremark / inadyn / miniupnpd / wpa_supplicant）====="
             for d in coremark inadyn miniupnpd wpa_supplicant ; do
               grep -qE "dir_[a-z]*.*$d" trunk/user/Makefile || fail "保留项缺失: $d"
             done
+            echo "===== verify: Web 入口裁剪（0007 / 0008）====="
+            # ★★ 2026-10-16 第 110 轮·前置修正（原断言有两处缺陷，都会造成【假通过】）：
+            #   ① 路径错：`internet.asp` 的真路径是 `n56u_ribbon_fixed/device-map/internet.asp`
+            #      （不在 www 根下）。依据：上游 contents API @ff77acc（www 根 404 / device-map 200，
+            #      12,102 B，md5 f6657e7b5b1ca15a36bef567cfef839a）+ 产物实测 `www\device-map\internet.asp`。
+            #   ② 写法错：原为 `grep -q X F && fail … || echo OK`。当 **F 不存在** 时 grep 返回 **2**（≠0）
+            #      ⇒ 跳过 fail ⇒ 落到 `|| echo OK` ⇒ **打印 "OK" 而实际什么都没验证**。
+            #   ⇒ 改为 **fail-closed**：先断言"文件存在"，再做内容断言（文件缺失 = fail，不再静默通过）。
+            ASP_SVC=trunk/user/www/n56u_ribbon_fixed/Advanced_Services_Content.asp
+            ASP_INT=trunk/user/www/n56u_ribbon_fixed/device-map/internet.asp
+            if [ ! -f "$ASP_SVC" ]; then
+              fail "找不到 $ASP_SVC（路径错或上游布局变更）"
+            elif grep -q 'adsc_enable' "$ASP_SVC"; then
+              fail "infosvr 开关未删除（patches/0007 未生效）"
+            else
+              echo "  OK   infosvr 开关已从 Advanced_Services_Content.asp 删除"
+            fi
+            if [ ! -f "$ASP_INT" ]; then
+              fail "找不到 $ASP_INT（路径错或上游布局变更）"
+            elif grep -q 'vpnsrv\.asp' "$ASP_INT"; then
+              fail "VPN 菜单项未删除（patches/0008 未生效）"
+            else
+              echo "  OK   VPN 下拉项已从 device-map/internet.asp 删除"
+            fi
+            if grep -q 'www/vpnsrv\.asp' trunk/user/www/Makefile; then
+              echo "  OK   www/Makefile 已含 VPN 页删除行"
+            else
+              fail "www/Makefile 缺 VPN 页删除行（patches/0008 未生效）"
+            fi
           fi
           [ "$FAILED" = "0" ] || { echo "::error::补丁断言未全部通过（见上文 ::error:: 行）"; exit 1; }
+
+      # ---- ★★ 供应链加固：预取 + 校验 frp tarball（第 110 轮·前置新增；用户 2026-10-16 决定「一起并入本轮」）----
+      #   背景：`trunk/user/frp/Makefile` 用 `wget --no-check-certificate` 抓 12.5 MB tarball 且【不校验任何哈希】
+      #         —— 这是整条构建链里【唯一从未被本地验证过】的联网环节（第 108 轮 FRPC=n ⇒ 该分支一次都没跑过）。
+      #   做法：先按上游同一 URL 预取到 make 期望的落点并校验 sha256；make 见文件已存在即跳过下载。
+      #   上游原文依据（全文转录：03_原始证据/r109g_upstream_frp_Makefile_ff77acc.txt）：
+      #     第  6 行  THISDIR := $(shell pwd)                          ⇒ 落点 = trunk/user/frp/
+      #     第 10 行  FRP_NAME := frp_$(FRP_VER)_linux_mipsle
+      #     第 11 行  FRP_URL := $(FRP_URL_BASE)/v$(FRP_VER)/$(FRP_NAME).tar.gz
+      #     第 17 行  if [ ! -f $(FRP_NAME).tar.gz ]; then … fi        ⇒ 「已存在则跳过下载」成立（本步前提）
+      #   ⚠️ 本步【不调 fail()】：sha 不符直接 exit 1（不受 strict_assert 降级影响）——
+      #      供应链校验一旦能被"放宽"，就等于没有（同 FRPC/FRPS 硬断言的理由）。
+      - name: Prefetch & verify frp tarball (sha256 pin)
+        run: |
+          set -e
+          EXPECT_SHA=2eaa97e6b42a0cbd672b079b59d5682bb64a766f9a9564d7c4bbbd3ca79ec694
+          FRP_VER=$(grep -m1 '^FRP_VER :=' trunk/user/frp/Makefile | awk '{print $NF}')
+          echo "补丁后 FRP_VER = ${FRP_VER}（来源 patches/0005）"
+          NAME=frp_${FRP_VER}_linux_mipsle
+          URL="https://github.com/fatedier/frp/releases/download/v${FRP_VER}/${NAME}.tar.gz"
+          cd trunk/user/frp
+          echo "落点 : $(pwd)/${NAME}.tar.gz"
+          echo "URL  : ${URL}"
+          if [ -f "${NAME}.tar.gz" ]; then
+            echo "已存在 ⇒ 上游 make 将跳过下载（Makefile 第 17 行判据）"
+          else
+            wget -t3 --timeout=30 -O "${NAME}.tar.gz" "${URL}"
+          fi
+          echo "实测 sha256 = $(sha256sum "${NAME}.tar.gz" | awk '{print $1}')"
+          if ! echo "${EXPECT_SHA}  ${NAME}.tar.gz" | sha256sum -c - ; then
+            echo "::error::frp tarball sha256 不符 —— 上游资产可能已变，或 FRP_VER 与本 pin 不同步"
+            echo "::error::本 pin 对应 v0.71.1（12,563,764 B；内层 frpc md5 da7d524a0bd92a953905e59ce032c9ba）"
+            echo "::error::若确要升级：先 sha256sum 实测新包，再同步更新本步 EXPECT_SHA 与 patches/0005 的 FRP_VER"
+            exit 1
+          fi
+          echo "  OK   frp tarball sha256 与 pin 一致（供应链校验通过）"
+          ls -l "${NAME}.tar.gz"
+
+      # ---- 8 个库的 sha256 钉死（★ 2026-10-25 第 187 轮新增 · B3）----
+      #   背景：上游各 lib 的 Makefile 都是 `wget --no-check-certificate`，**零校验**（R-12）。
+      #   做法：在构建前把包预取到各 lib 目录（上游判据是「文件已存在则跳过下载」），
+      #         在这里做唯一一次 sha256 校验；不符即 ::error:: 退出。
+      #   ★ 全部 hash 于 2026-10-25 经联网实测（代理 10808）；见报告第187轮 §13。
+      #   ⚠️ openssl 的行是 **release asset**（官方 dist 包，9,893,384 B）；
+      #      旧台账记的 10,070,335 B/2130e8c2 是 **github archive** 包，与 0015 的 SRC_URL 不符，已更正。
+      - name: Prefetch & verify 8 library tarballs (sha256 pin)
+        run: |
+          set -e
+          fetch() {  # $1=libs 子目录  $2=文件名  $3=URL  $4=sha256
+            mkdir -p "trunk/libs/$1"
+            cd "trunk/libs/$1"
+            if [ ! -f "$2" ]; then
+              echo "-- 下载 $1/$2"
+              wget -t3 --timeout=60 -O "$2.part" "$3"
+              mv "$2.part" "$2"
+            fi
+            if ! echo "$4  $2" | sha256sum -c - ; then
+              echo "::error::trunk/libs/$1/$2 sha256 不符（期望 $4）"
+              echo "::error::上游资产可能已变。若确要换版本：同步改 patches/ 里的 SRC_URL 与本步 pin。"
+              exit 1
+            fi
+            echo "  OK   $1/$2"
+            cd "$GITHUB_WORKSPACE"
+          }
+          fetch libz          zlib-1.2.13.tar.gz                 https://zlib.net/fossils/zlib-1.2.13.tar.gz b3a24de97a8fdbc835b9833169501030b8977031bcb54b3b3ac13740f846ab30
+          fetch libpcap       libpcap-1.10.7.tar.gz              https://www.tcpdump.org/release/libpcap-1.10.7.tar.gz 0b394ac90dbc0a9838ff97468e05c9c9a3e873dec2514cd58db65d859d296e31
+          fetch libuv         libuv-v1.53.0.tar.gz               https://dist.libuv.org/dist/v1.53.0/libuv-v1.53.0.tar.gz cb0d6dd2128d5a95bd242c6cc982a24fe608fa93da57b6b4ec763b0018c53e64
+          fetch libjson-c     json-c-json-c-0.18-20240915.tar.gz https://github.com/json-c/json-c/archive/json-c-0.18-20240915.tar.gz 3112c1f25d39eca661fe3fc663431e130cc6e2f900c081738317fba49d29e298
+          fetch libssl        openssl-1.1.1w.tar.gz               https://github.com/openssl/openssl/releases/download/OpenSSL_1_1_1w/openssl-1.1.1w.tar.gz cf3098950cb4d853ad95c0841f1f9c6d3dc102dccfcacd521d93925208b76ac8
+          fetch libcurl       curl-7.88.1.tar.xz                 https://github.com/curl/curl/releases/download/curl-7_88_1/curl-7.88.1.tar.xz 1dae31b2a7c1fe269de99c0c31bb488346aab3459b5ffca909d6938249ae415f
+          fetch libncurses    ncurses-6.5.tar.gz                 https://ftpmirror.gnu.org/ncurses/ncurses-6.5.tar.gz 136d91bc269a9a5785e5f9e980bc76ab57428f604ce3e5a5a90cebc767971cc6
+          fetch libwebsockets libwebsockets-4.5.8.tar.gz         https://github.com/warmcat/libwebsockets/archive/v4.5.8.tar.gz b6ade658f4af3a823d0dc806ae5ef0623f0f4f5e2aeb895a0f77c4783840c30e
+          echo "===== 8 个库全部通过 sha256 校验 ====="
 
       # ---- 余量预检：本轮的体积假设（★ 2026-10-16 按 v1/v2/v3 复核修正数字）----
       - name: Headroom sanity (v109 expectation)
@@ -237,10 +541,39 @@ jobs:
           path: toolchain-mipsel/toolchain-4.4.x
           key: tc-4.4.x-${{ runner.os }}-v1
 
+      # ---- toolchain：预编译 tar.xz，命中缓存则秒过 ----
+      #   ★ R-13 fix（第 182 轮）：release 无官方 digest，且 dl_toolchain.sh 的 curl 不校验
+      #     ⇒ 「换 tag 静默换 libc」这条 P1 风险在流水线上原本零拦截点。
+      #     现把第 180 轮实测的 md5/sha256 钉在这里；不符即 ::error:: 退出。
+      #     若将来有意升级工具链：改下面两个常量 + 同步 doc/D14 K01 与 00_交接文档。
       - name: Prepare toolchain
+        env:
+          TC_MD5: d0d96e64acf0ff115dca6ef678ce3f99
+          TC_SHA256: 928db92fb2dd2d9f7cc540a40cbadaa2224b582e7b186f46c743d458ad768dc6
         run: |
+          set -e
           cd toolchain-mipsel
           sh dl_toolchain.sh          # 已存在 toolchain-4.4.x/ 时脚本会直接跳过
+          # 无论走了下载分支还是「已存在」分支，都校验一次内容
+          ARCH="$(uname -m)"
+          case "$ARCH" in
+            aarch64) F=aarch64_mipsel-linux-uclibc.tar.xz ;;
+            x86_64)  F=mipsel-linux-uclibc.tar.xz ;;
+            *) echo "::error::unknown ARCH=$ARCH"; exit 1 ;;
+          esac
+          if [ ! -f "$F" ]; then
+            echo "::error::$F 不存在（dl_toolchain.sh 未下载？）"; exit 1
+          fi
+          echo "  size = $(wc -c < "$F") bytes"
+          GOT_MD5=$(md5sum "$F" | awk '{print $1}')
+          GOT_SHA=$(sha256sum "$F" | awk '{print $1}')
+          if [ "$GOT_MD5" != "$TC_MD5" ] || [ "$GOT_SHA" != "$TC_SHA256" ]; then
+            echo "::error::toolchain 校验不符 —— 实测 md5=$GOT_MD5 sha256=$GOT_SHA"
+            echo "::error::期望 md5=$TC_MD5 sha256=$TC_SHA256"
+            echo "::error::⇒ 上游换了 tag/内容。若是【有意】升级：改本步两个常量 + 同步 doc/D14 K01；否则说明供应链被污染，立即停止。"
+            exit 1
+          fi
+          echo "  OK   toolchain md5/sha256 与钉死值一致（$GOT_MD5）"
 
       - name: Build firmware
         run: |
@@ -304,6 +637,32 @@ jobs:
             for f in usr/sbin/infosvr usr/sbin/lanauth usr/sbin/udpxy usr/sbin/xl2tpd usr/sbin/pptpd usr/sbin/pptpctrl usr/sbin/bcrelay usr/sbin/openvpn usr/bin/openvpn-cert.sh usr/bin/xupnpd bin/rt2860apd ; do
               if grep -qE "(^|/)${f}\$" /tmp/rootfs-list.txt ; then fail "仍存在（裁剪未生效）: $f"; else echo "  OK   已移除 $f"; fi
             done
+            echo "===== 必须【不存在】（Web 入口 · 0007 / 0008）====="
+            for f in www/vpnsrv.asp www/vpncli.asp www/vpn_clients.asp ; do
+              if grep -qE "(^|/)${f}\$" /tmp/rootfs-list.txt ; then fail "仍存在（UI 裁剪未生效）: $f"; else echo "  OK   已移除 $f"; fi
+            done
+            # 内容级：产物页里 infosvr 开关应已消失（unsquashfs -cat 不可用则如实跳过，绝不做假通过）
+            if "$U" -cat "$R" www/Advanced_Services_Content.asp > /tmp/adv_asp.txt 2>/dev/null && [ -s /tmp/adv_asp.txt ] ; then
+              if grep -q 'adsc_enable' /tmp/adv_asp.txt ; then
+                fail "产物 www/Advanced_Services_Content.asp 仍含 adsc_enable（0007 未生效）"
+              else
+                echo "  OK   产物页已无 infosvr 开关（adsc_enable 0 命中）"
+              fi
+            else
+              echo "  (unsquashfs -cat 不可用 ⇒ 内容级检查跳过；步骤 8 已在源码层验证)"
+            fi
+            # ★★ 2026-10-16 新增（第 110 轮·前置）：VPN 下拉项的【产物级】内容断言。
+            #   路径必须是 device-map/internet.asp（详见步骤 8 的路径修正说明）；
+            #   同样 fail-closed：拿不到文件 ⇒ 不算通过，也不算失败，但打印明确提示以便区分"跳过"与"已验"。
+            if "$U" -cat "$R" www/device-map/internet.asp > /tmp/int_asp.txt 2>/dev/null && [ -s /tmp/int_asp.txt ] ; then
+              if grep -q 'vpnsrv\.asp\|vpncli\.asp' /tmp/int_asp.txt ; then
+                fail "产物 www/device-map/internet.asp 仍含 VPN 菜单项（0008 未生效）"
+              else
+                echo "  OK   产物页已无 VPN 下拉项（device-map/internet.asp · vpnsrv/vpncli 0 命中）"
+              fi
+            else
+              echo "  (unsquashfs -cat 不可用 ⇒ device-map/internet.asp 内容级检查跳过；步骤 8 已在源码层验证)"
+            fi
           fi
           [ "$FAILED" = "0" ] || { echo "::error::产物内容断言未全部通过（见上文 ::error:: 行）"; exit 1; }
 
