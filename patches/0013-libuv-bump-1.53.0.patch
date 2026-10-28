@@ -1,0 +1,10 @@
+--- a/trunk/libs/libuv/Makefile	2026-10-23 15:18:36.178189000 +0800
++++ b/trunk/libs/libuv/Makefile	2026-10-23 15:18:36.964126500 +0800
+@@ -1,5 +1,5 @@
+-SRC_NAME=libuv-v1.38.1
+-SRC_URL=https://dist.libuv.org/dist/v1.38.1/libuv-v1.38.1.tar.gz
++SRC_NAME=libuv-v1.53.0
++SRC_URL=https://dist.libuv.org/dist/v1.53.0/libuv-v1.53.0.tar.gz
+ 
+ all: download_test extract_test config_test
+ 	$(MAKE) -j$(HOST_NCPU) -C $(SRC_NAME)
