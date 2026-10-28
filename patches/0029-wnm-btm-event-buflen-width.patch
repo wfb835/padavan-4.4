@@ -1,0 +1,13 @@
+--- a/trunk/linux-4.4.x/drivers/net/wireless/mediatek/mt7615/embedded/common/wnm.c
++++ b/trunk/linux-4.4.x/drivers/net/wireless/mediatek/mt7615/embedded/common/wnm.c
+@@ -57,7 +57,9 @@
+ {
+ 	struct btm_query_data *query_data = NULL;
+ 	struct wnm_event *event_data = NULL;
+-	UINT16 buflen = 0;
++	/* F117-1: 原来是 UINT16 —— (5 + 14 + 65535) & 0xFFFF == 18，
++	 * 于是只分配 18 B 却 memcpy 65535 B。改 32 位与 sizeof() 量纲一致。 */
++	UINT32 buflen = 0;
+ 	char *buf;
+ 
+ 	buflen = sizeof(struct wnm_event) + sizeof(struct btm_query_data) + btm_query_len;
