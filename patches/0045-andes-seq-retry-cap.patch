@@ -1,0 +1,27 @@
+--- a/trunk/linux-4.4.x/drivers/net/wireless/mediatek/mt7615/embedded/mcu/andes_core.c
++++ b/trunk/linux-4.4.x/drivers/net/wireless/mediatek/mt7615/embedded/mcu/andes_core.c
+@@ -280,15 +280,22 @@
+ 	struct cmd_msg *msg;
+ 	unsigned long flags;
+ 	UINT8 msg_seq;
++	UINT32 retry = 0;
+ 
+ 	RTMP_SPIN_LOCK_IRQSAVE(&ctl->ackq_lock, &flags);
+ get_seq:
++	if (++retry > 100) {
++		MTWF_LOG(DBG_CAT_FW, DBG_SUBCAT_ALL, DBG_LVL_ERROR,
++				 ("%s: seq alloc failed after %u retries\n", __func__, retry));
++		RTMP_SPIN_UNLOCK_IRQRESTORE(&ctl->ackq_lock, &flags);
++		return 0;
++	}
+ 	ctl->cmd_seq >= 0xf ? ctl->cmd_seq = 1 : ctl->cmd_seq++;
+ 	DlListForEach(msg, &ctl->ackq, struct cmd_msg, list) {
+ 		if (msg->seq == ctl->cmd_seq) {
+-			MTWF_LOG(DBG_CAT_FW, DBG_SUBCAT_ALL, DBG_LVL_ERROR,
++			MTWF_LOG(DBG_CAT_FW, DBG_SUBCAT_ALL, DBG_LVL_OFF,
+ 					 ("command(seq: %d) is still running\n", ctl->cmd_seq));
+-			MTWF_LOG(DBG_CAT_FW, DBG_SUBCAT_ALL, DBG_LVL_ERROR,
++			MTWF_LOG(DBG_CAT_FW, DBG_SUBCAT_ALL, DBG_LVL_OFF,
+ 					 ("command response nums = %d\n", GetCmdRspNum(ad)));
+ 			goto get_seq;
+ 		}
