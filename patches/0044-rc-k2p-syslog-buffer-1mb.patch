@@ -1,0 +1,15 @@
+--- a/trunk/user/rc/rc.h
++++ b/trunk/user/rc/rc.h
+@@ -135,6 +135,12 @@
+  #define KERNEL_MIN_FREE_KBYTES		1024
+  #define DNS_RELAY_CACHE_MAX		160
+  #define LOG_ROTATE_SIZE_MAX		80
++#endif
++
++#if defined(BOARD_K2P) && (BOARD_RAM_SIZE == 128)
++/* K2P: 1 MB syslog buffer (default 512 KB). +0.5 MB tmpfs; /tmp has ~18 MB free. */
++#undef LOG_ROTATE_SIZE_MAX
++#define LOG_ROTATE_SIZE_MAX		1024
+ #endif
+ 
+ //////////////////////////////////////////////////////////
