@@ -1,0 +1,25 @@
+--- a/trunk/user/www/n56u_ribbon_fixed/device-map/internet.asp
++++ b/trunk/user/www/n56u_ribbon_fixed/device-map/internet.asp
+@@ -370,8 +370,6 @@
+           <option value="../Advanced_Exposed_Content.asp"><#menu5_3_5#></option>
+           <option value="../Advanced_DDNS_Content.asp"><#menu5_3_6#></option>
+           <option value="../Advanced_Modem_others.asp"><#menu5_4_4#></option>
+-          <option value="../vpnsrv.asp"><#menu2#></option>
+-          <option value="../vpncli.asp"><#menu6#></option>
+         </select>
+     </td>
+   </tr>
+--- a/trunk/user/www/Makefile
++++ b/trunk/user/www/Makefile
+@@ -200,5 +200,11 @@
+ 	rm -f $(INSTALLDIR)/www/Shadowsocks_log.asp
+ endif
+ 
++# 第 110 轮：VPN 服务端/客户端（poptop/xl2tpd/openvpn）已从本固件移除
++#          ⇒ 一并删掉其 Web 页，避免菜单死链（与上方 scutclient/Shadowsocks 同款做法）
++	rm -f $(ROMFS_DIR)/www/vpnsrv.asp
++	rm -f $(ROMFS_DIR)/www/vpncli.asp
++	rm -f $(ROMFS_DIR)/www/vpn_clients.asp
++
+ clean:
+ 	@echo "Clean www romfs"
