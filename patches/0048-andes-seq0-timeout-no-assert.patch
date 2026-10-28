@@ -1,0 +1,33 @@
+--- a/trunk/linux-4.4.x/drivers/net/wireless/mediatek/mt7615/embedded/mcu/andes_core.c
++++ b/trunk/linux-4.4.x/drivers/net/wireless/mediatek/mt7615/embedded/mcu/andes_core.c
+@@ -881,10 +881,28 @@
+ 			MTWF_LOG(DBG_CAT_HIF, CATHIF_PCI, DBG_LVL_OFF, ("Enabling interrupt\n"));
+ 			RTMP_ASIC_INTERRUPT_ENABLE(ad);
+ #else
+-			ASSERT(FALSE);
++			/* seq == 0 on a sync command means AndesGetCmdMsgSeq()
++			 * dropped it because the ackq was full; its 3 s timeout
++			 * is expected.  Do not dump a stack for that one case:
++			 * with DBG enabled it is a console/syslog storm.  A
++			 * non-sync timeout, or a real nonzero-seq timeout, still
++			 * asserts.
++			 */
++			if (msg->seq ||
++			    !IS_CMD_MSG_NEED_SYNC_WITH_FW_FLAG_SET(msg))
++				ASSERT(FALSE);
+ #endif
+ #else
+-			ASSERT(FALSE);
++			/* seq == 0 on a sync command means AndesGetCmdMsgSeq()
++			 * dropped it because the ackq was full; its 3 s timeout
++			 * is expected.  Do not dump a stack for that one case:
++			 * with DBG enabled it is a console/syslog storm.  A
++			 * non-sync timeout, or a real nonzero-seq timeout, still
++			 * asserts.
++			 */
++			if (msg->seq ||
++			    !IS_CMD_MSG_NEED_SYNC_WITH_FW_FLAG_SET(msg))
++				ASSERT(FALSE);
+ #endif
+ 		} else {
+ 			if (msg->state == tx_kickout_fail) {
