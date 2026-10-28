@@ -1,0 +1,14 @@
+--- a/trunk/linux-4.4.x/drivers/net/ethernet/raeth/raether.c
++++ b/trunk/linux-4.4.x/drivers/net/ethernet/raeth/raether.c
+@@ -2043,8 +2043,10 @@
+ 		free_irq(ei_local->irq2, dev);
+ 	}
+ 
+-	if (ei_local->architecture & RAETH_ESW || ei_local->chip_name == MT7621_FE)
++	if (ei_local->architecture & RAETH_ESW)
+ 		free_irq(ei_local->esw_irq, dev);
++	else if (ei_local->chip_name == MT7621_FE)
++		free_irq(ei_local->esw_irq, NULL);
+ 
+ 	if (ei_local->features & (FE_RSS_4RING | FE_RSS_2RING))
+ 		free_irq(ei_local->irq3, dev);
