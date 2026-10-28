@@ -1,0 +1,27 @@
+--- a/trunk/linux-4.4.x/drivers/net/ethernet/raeth/raether.c
++++ b/trunk/linux-4.4.x/drivers/net/ethernet/raeth/raether.c
+@@ -12,6 +12,7 @@
+  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+  * GNU General Public License for more details.
+  */
++#include <linux/capability.h>
+ #include "raether.h"
+ #include "ra_mac.h"
+ #include "ra_ioctl.h"
+@@ -2701,6 +2702,16 @@
+ 	struct ra_mii_ioctl_data mii;
+ 	char ip_tmp[IP4_ADDR_LEN];
+ 
++	/* R-194-4: SIOCDEVPRIVATE (0x89F0..0x89FF) reaches ndo_do_ioctl without
++	 * any capability check (net/socket.c:900 -> dev_ioctl -> dev_ifsioc
++	 * default branch, linux-4.4).  Every command below writes real
++	 * hardware: ESW and MII registers, QDMA/FrameEngine registers, the
++	 * LAN IPv4 address.  Require CAP_NET_ADMIN.
++	 * NOTE: this does not make the copy_*_user under page_lock safe - that
++	 * still needs the copies hoisted out of the spinlock (separate item). */
++	if (!capable(CAP_NET_ADMIN))
++		return -EPERM;
++
+ 	spin_lock_irq(&ei_local->page_lock);
+ 
+ 	switch (cmd) {
