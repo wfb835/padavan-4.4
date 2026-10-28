@@ -1,0 +1,10 @@
+--- a/trunk/libs/libz/Makefile	2026-10-23 15:18:35.281035900 +0800
++++ b/trunk/libs/libz/Makefile	2026-10-23 15:18:36.962135300 +0800
+@@ -1,5 +1,5 @@
+-SRC_NAME=zlib-1.2.11
+-SRC_URL=http://www.zlib.net/$(SRC_NAME).tar.gz
++SRC_NAME=zlib-1.2.13
++SRC_URL=https://zlib.net/fossils/zlib-1.2.13.tar.gz
+ 
+ all: download_test extract_test config_test
+ 	$(MAKE) -j$(HOST_NCPU) -C $(SRC_NAME)
