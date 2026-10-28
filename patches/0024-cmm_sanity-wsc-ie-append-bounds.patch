@@ -1,0 +1,18 @@
+--- a/trunk/linux-4.4.x/drivers/net/wireless/mediatek/mt7615/embedded/common/cmm_sanity.c
++++ b/trunk/linux-4.4.x/drivers/net/wireless/mediatek/mt7615/embedded/common/cmm_sanity.c
+@@ -970,6 +970,15 @@
+ 	if (pPeerWscIe && (PeerWscIeLen > 0) && (PeerWscIeLen <= 512) && (bWscCheck == TRUE)) {
+ 		UCHAR WscIe[] = {0xdd, 0x00, 0x00, 0x50, 0xF2, 0x04};
+ 
++		/* F84-3: 追加前必须确认 VarIEs[MAX_VIE_LEN] 放得下（原实现直接写，
++		 * 循环内的 >= MAX_VIE_LEN 守卫管不到这里）。 */
++		if ((*LengthVIE + PeerWscIeLen + 6) >= MAX_VIE_LEN) {
++			MTWF_LOG(DBG_CAT_MLME, DBG_SUBCAT_ALL, DBG_LVL_WARN,
++					 ("%s() - WSC IE append skipped: %d + %d + 6 >= MAX_VIE_LEN\n",
++					  __func__, (int)*LengthVIE, (int)PeerWscIeLen));
++			goto SanityCheck;
++		}
++
+ 		Ptr = (PUCHAR) pVIE;
+ 		WscIe[1] = PeerWscIeLen + 4;
+ 		NdisMoveMemory(Ptr + *LengthVIE, WscIe, 6);
