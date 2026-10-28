@@ -1,0 +1,48 @@
+--- a/trunk/user/httpd/httpd.c
++++ b/trunk/user/httpd/httpd.c
+@@ -980,17 +980,40 @@
+ 
+ 	do_logout = (strcmp(file, "Logout.asp") == 0) ? 1 : 0;
+ 
+-	if (handler->need_auth && login_state > 1 && !do_logout) {
+-		if (!auth_check(authorization)) {
++	/* ---- 0032 (r3): authentication gate ----------------------------------
++	 * Bug 1 (#135 / R-192): the original condition `login_state > 1` skipped
++	 * auth_check entirely when login_state == 0, i.e. while *another* host
++	 * held the session.  Any second LAN host could therefore reach every
++	 * need_auth handler without credentials during the 30 s LOGIN_TIMEOUT.
++	 *
++	 * Bug 2 (T2-09 / R-194-5): login_state == 1 means "came from localhost"
++	 * and http_login_check() returns it unconditionally.  httpd binds
++	 * INADDR_ANY, so *any* local process - including dnsmasq running as
++	 * `nobody` - could POST to 127.0.0.1/apply.cgi, rewrite http_passwd,
++	 * reboot and log in as root.
++	 *
++	 * Fix: remove the blanket state-1 exemption.  Every need_auth request
++	 * must now pass auth_check except the watchdog liveness probe:
++	 * GET httpd_check.htm from localhost.  rc/watchdog.c:116 wget's that
++	 * URL without credentials and greps for "ASUSTeK"; without the
++	 * exemption httpd_check_v2() fails and watchdog.c:389 runs
++	 * `killall -9 httpd` every 90 s.  The exemption is restricted to that
++	 * exact file and the GET method, so state-changing GETs such as
++	 * apply.cgi?action_mode=Reboot still require credentials.
++	 * login_state == 2 handling is unchanged. */
++	if (handler->need_auth && !do_logout) {
++		if ((login_state == 1 && method_id == HTTP_METHOD_GET &&
++		     strcmp(file, "httpd_check.htm") == 0) ||
++		    auth_check(authorization)) {
++			if (login_state == 2)
++				http_login(&conn_ip);
++		} else {
+ 			http_logout(&conn_ip);
+ 			if (method_id == HTTP_METHOD_POST)
+ 				eat_post_data(conn_fp, clen);
+ 			send_authenticate(conn_fp);
+ 			return;
+ 		}
+-		
+-		if (login_state == 2)
+-			http_login(&conn_ip);
+ 	}
+ 
+ 	if (method_id == HTTP_METHOD_POST) {
