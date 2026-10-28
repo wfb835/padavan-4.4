@@ -1,0 +1,16 @@
+--- a/trunk/user/httpd/web_ex.c
++++ b/trunk/user/httpd/web_ex.c
+@@ -680,6 +680,13 @@
+ 
+ 	if (ejArgs(argc, argv, "%s %s", &file, &script) < 2) {
+ 		websError(wp, 400, "Insufficient args\n");
++		return -1;
++	}
++
++	/* The file name comes straight from the request (?arg0=...).  Without this
++	 * check "../../etc/shadow" escaped /tmp and was served to the client. */
++	if (strchr(file, '/') != NULL || strstr(file, "..") != NULL) {
++		websError(wp, 400, "Invalid file name\n");
+ 		return -1;
+ 	}
+ 
