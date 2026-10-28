@@ -1,0 +1,54 @@
+--- a/trunk/linux-4.4.x/drivers/net/wireless/mediatek/mt7615/embedded/common/wnm.c
++++ b/trunk/linux-4.4.x/drivers/net/wireless/mediatek/mt7615/embedded/common/wnm.c
+@@ -1571,6 +1571,16 @@
+ 
+ 	if (!IsFound) {
+ 		MTWF_LOG(DBG_CAT_PROTO, CATPROTO_WNM, DBG_LVL_ERROR, ("Not found peer entry in list\n"));
++		return;
++	}
++
++	/* R-194-2: VarLen / BTMRspLen are unsigned subtractions from MsgLen;
++	 * a 26-byte frame makes both 0xFFFF, and BTMRspLen then lies to every
++	 * downstream consumer (MlmeEnqueue only copies MsgLen bytes). */
++	if (Elem->MsgLen < (ULONG)(sizeof(HEADER_802_11) + 3)) {
++		MTWF_LOG(DBG_CAT_PROTO, CATPROTO_WNM, DBG_LVL_ERROR,
++				 ("%s BTM Rsp frame too short (len=%lu), dropped\n",
++				  __func__, (unsigned long)Elem->MsgLen));
+ 		return;
+ 	}
+ 
+@@ -3364,6 +3374,18 @@
+ 		__func__, PRINT_MAC(WNMFrame->Hdr.Addr2)));
+ #endif /* MBO_SUPPORT */
+ 
++
++	/* R-194-1: OptionalElementLen below is an unsigned subtraction; with a
++	 * 26-byte ACTION frame (the floor enforced by 0019) it wraps to
++	 * 0xFFFFFFFE and the element walk reads far past the body, logging at
++	 * DBG_LVL_ERROR on every iteration.  Need 24 + category + action +
++	 * DialogToken + type. */
++	if (Elem->MsgLen < (ULONG)(sizeof(HEADER_802_11) + 4)) {
++		MTWF_LOG(DBG_CAT_PROTO, CATPROTO_WNM, DBG_LVL_ERROR,
++				 ("%s WNM Notify Req too short (len=%lu), dropped\n",
++				  __func__, (unsigned long)Elem->MsgLen));
++		return;
++	}
+ 
+ 	MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_ERROR, ("%s MsgLen %ld MBSS %02x:%02x:%02x:%02x:%02x:%02x\n",
+ 		__func__, Elem->MsgLen, PRINT_MAC(WNMFrame->Hdr.Addr1)));
+@@ -3507,6 +3529,15 @@
+ 	/* Cancel Wait peer wnm response frame */
+ 	RTMPCancelTimer(&WNMNotifyPeerEntry->WaitPeerWNMNotifyRspTimer, &Cancelled);
+ 	RTMPReleaseTimer(&WNMNotifyPeerEntry->WaitPeerWNMNotifyRspTimer, &Cancelled);
++	/* R-194-3: DialogToken lives at 24 + category + action; a bare 26-byte
++	 * action frame would read one byte past the body. */
++	if (Elem->MsgLen < (ULONG)(sizeof(HEADER_802_11) + 3)) {
++		MTWF_LOG(DBG_CAT_PROTO, CATPROTO_WNM, DBG_LVL_ERROR,
++				 ("%s WNM Notify Rsp too short (len=%lu), dropped\n",
++				  __func__, (unsigned long)Elem->MsgLen));
++		return;
++	}
++
+ 	VarLen = 1;
+ 	os_alloc_mem(NULL, (UCHAR **)&Buf, sizeof(*Event) + VarLen);
+ 
