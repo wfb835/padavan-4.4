@@ -1,0 +1,69 @@
+--- a/trunk/libs/libcurl/Makefile	2026-10-23 15:47:19.535390400 +0800
++++ b/trunk/libs/libcurl/Makefile	2026-10-23 15:47:19.829015200 +0800
+@@ -1,5 +1,5 @@
+-SRC_NAME=curl-7.75.0
+-SRC_URL=https://github.com/curl/curl/releases/download/curl-7_75_0/curl-7.75.0.tar.xz
++SRC_NAME=curl-7.88.1
++SRC_URL=https://github.com/curl/curl/releases/download/curl-7_88_1/curl-7.88.1.tar.xz
+ 
+ LDFLAGS += -Wl,-rpath-link=$(STAGEDIR)/lib
+ 
+@@ -14,7 +14,14 @@
+ extract_test:
+ 	( if [ ! -d $(SRC_NAME) ]; then \
+ 		tar xf $(SRC_NAME).tar.xz; \
+-		patch -d $(SRC_NAME) -p1 -i ../no_docs_test.patch; \
++		if [ ! -f $(SRC_NAME)/lib/Makefile.in ]; then \
++			echo "ERROR: $(SRC_NAME).tar.xz is not the release dist tarball"; \
++			echo "       needs $(SRC_NAME)/lib/Makefile.in (codeload git tarball lacks it)"; \
++			echo "       fix SRC_URL (R-23), then rerun"; \
++			rm -rf $(SRC_NAME) curl-curl-7_88_1; \
++			exit 1; \
++		fi; \
++		patch -d $(SRC_NAME) -p1 -i ../no_docs_test-7.88.1.patch; \
+ 	fi )
+
+ config_test:
+--- /dev/null
++++ b/trunk/libs/libcurl/no_docs_test-7.88.1.patch
+@@ -0,0 +1,40 @@
++--- a/Makefile.am	2026-10-23 15:46:48.508123400 +0800
+++++ b/Makefile.am	2026-10-23 15:46:48.670020500 +0800
++@@ -158,7 +158,7 @@
++ bin_SCRIPTS = curl-config
++ 
++ SUBDIRS = lib src
++-DIST_SUBDIRS = $(SUBDIRS) tests packages scripts include docs
+++DIST_SUBDIRS = $(SUBDIRS) packages include
++ 
++ pkgconfigdir = $(libdir)/pkgconfig
++ pkgconfig_DATA = libcurl.pc
++@@ -272,8 +272,6 @@
++ # We extend the standard install with a custom hook:
++ install-data-hook:
++ 	(cd include && $(MAKE) install)
++-	(cd docs && $(MAKE) install)
++-	(cd docs/libcurl && $(MAKE) install)
++ 
++ # We extend the standard uninstall with a custom hook:
++ uninstall-hook:
++--- a/Makefile.in	2026-10-23 15:46:48.511191800 +0800
+++++ b/Makefile.in	2026-10-23 15:46:48.672022200 +0800
++@@ -685,7 +685,7 @@
++ 
++ bin_SCRIPTS = curl-config
++ SUBDIRS = lib src
++-DIST_SUBDIRS = $(SUBDIRS) tests packages scripts include docs
+++DIST_SUBDIRS = $(SUBDIRS) packages include
++ pkgconfigdir = $(libdir)/pkgconfig
++ pkgconfig_DATA = libcurl.pc
++ LIB_VAUTH_CFILES = \
++@@ -1785,8 +1785,6 @@
++ # We extend the standard install with a custom hook:
++ install-data-hook:
++ 	(cd include && $(MAKE) install)
++-	(cd docs && $(MAKE) install)
++-	(cd docs/libcurl && $(MAKE) install)
++ 
++ # We extend the standard uninstall with a custom hook:
++ uninstall-hook:
