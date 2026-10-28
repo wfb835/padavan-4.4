@@ -1,0 +1,33 @@
+--- a/trunk/user/httpd/httpd.c
++++ b/trunk/user/httpd/httpd.c
+@@ -509,8 +509,12 @@
+ static void
+ http_logout(const uaddr *ip_now)
+ {
+-	if (is_uaddr_equal(ip_now, &login_ip))
+-		reset_login_data();
++	(void)ip_now;
++	/* Multiple clients may share the login state; a logout from any
++	 * of them clears it.  Each client re-authenticates with Basic auth
++	 * on its next request (httpd.c:449 http_login / :655 auth_check).
++	 */
++	reset_login_data();
+ }
+ 
+ 
+@@ -538,6 +542,15 @@
+ 		return 2;
+ 	}
+ 
++	/* 2026-10-28: allow another safe LAN/VPN client to log in while
++	 * someone else is logged in.  Basic auth is still enforced per
++	 * request by auth_check(); this only removes the old single-session
++	 * "please logout another user first" block.  Unsafe (non-LAN) IPs
++	 * keep the original block.
++	 */
++	if (is_safe_ipaddr(ip_now) && login_safe)
++		return 2;
++
+ 	return 0;
+ }
+ 
