@@ -1,0 +1,56 @@
+--- a/trunk/linux-4.4.x/drivers/net/wireless/mediatek/mt7615/embedded/common/mlme.c
++++ b/trunk/linux-4.4.x/drivers/net/wireless/mediatek/mt7615/embedded/common/mlme.c
+@@ -4312,6 +4312,53 @@
+ 		return FALSE;
+ 	}
+ 
++	/* M9-B fix (extended in r190/r192): every management subtype that is
++	 * parsed below has a fixed minimum body.  A shorter frame makes
++	 * APMsgTypeSubst / APPearAuthSanity / PeerAssoc*Sanity read past the
++	 * received body.  The gate sits before every MsgTypeSubst dispatch, so
++	 * both the AP-only path (ApBssIdx_find == TRUE) and the APCLI path are
++	 * covered.
++	 * (R-183-1: the original in-branch gate only covered APCLI.)
++	 * (R-192-1: ACTION_NO_ACK(14) is dispatched too - ap_mlme.c:650 reads
++	 *  pFrame->Octet[0] - so it needs the same 2-byte body floor.)
++	 */
++	if (pFrame->Hdr.FC.Type == FC_TYPE_MGMT) {
++		ULONG min_len = 0;
++
++		switch (pFrame->Hdr.FC.SubType) {
++		case SUBTYPE_ASSOC_REQ:
++			min_len = LENGTH_802_11 + 4;	/* cap(2) + listen interval(2) */
++			break;
++		case SUBTYPE_ASSOC_RSP:
++			min_len = LENGTH_802_11 + 6;	/* cap(2) + status(2) + aid(2) */
++			break;
++		case SUBTYPE_REASSOC_REQ:
++			min_len = LENGTH_802_11 + 10;	/* + current AP(6) */
++			break;
++		case SUBTYPE_REASSOC_RSP:
++			min_len = LENGTH_802_11 + 6;
++			break;
++		case SUBTYPE_DISASSOC:
++		case SUBTYPE_DEAUTH:
++		case SUBTYPE_ACTION:
++		case SUBTYPE_ACTION_NO_ACK:
++			min_len = LENGTH_802_11 + 2;	/* reason / category+action */
++			break;
++		case SUBTYPE_AUTH:
++			min_len = LENGTH_802_11 + 6;	/* alg(2)+seq(2)+status(2) */
++			break;
++		default:
++			break;
++		}
++
++		if ((min_len != 0) && (MsgLen < min_len)) {
++			MTWF_LOG(DBG_CAT_MLME, DBG_SUBCAT_ALL, DBG_LVL_WARN,
++					 ("%s(): drop short mgmt frame, subtype=%d len=%ld\n",
++					  __func__, pFrame->Hdr.FC.SubType, MsgLen));
++			return FALSE;
++		}
++	}
++
+ 	if (MlmeQueueFull(Queue, 0)
+ #ifdef MLME_MULTI_QUEUE_SUPPORT
+ 		&& !pAd->Mlme.MultiQEnable
