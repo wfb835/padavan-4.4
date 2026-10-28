@@ -1,0 +1,181 @@
+--- a/trunk/linux-4.4.x/drivers/net/wireless/mediatek/mt7615/embedded/common/igmp_snoop.c
++++ b/trunk/linux-4.4.x/drivers/net/wireless/mediatek/mt7615/embedded/common/igmp_snoop.c
+@@ -1555,7 +1555,8 @@
+ 	IN PUCHAR pSrcMacAddr,
+ 	IN PUCHAR pIpHeader,
+ 	IN MAC_TABLE_ENTRY *pEntry,
+-	UINT8 Wcid
++	UINT8 Wcid,
++	UINT16 PktLen
+ )
+ {
+ 	INT i;
+@@ -1577,7 +1578,14 @@
+ #endif /* IGMP_TVM_SUPPORT */
+ 
+ 	if (isIgmpPkt(pDstMacAddr, pIpHeader)) {
++		/* M9 fix: validate IP header against real packet length before use */
++		if (PktLen < (2 + 20 + 8))   /* EtherType + min IPv4 header + min IGMP header */
++			return;
++
+ 		IpHeaderLen = (*(pIpHeader + 2) & 0x0f) * 4;
++		if ((IpHeaderLen < 20) || ((2 + IpHeaderLen + 8) > PktLen))
++			return;
++
+ 		pIgmpHeader = pIpHeader + 2 + IpHeaderLen;
+ 		IgmpVerType = (UCHAR)(*(pIgmpHeader));
+ #ifdef A4_CONN
+@@ -1637,6 +1645,10 @@
+ 			pGroup = (PUCHAR)(pIgmpHeader + 8);
+ 
+ 			for (i = 0; i < numOfGroup; i++) {
++				/* M9 fix: clamp group-record walk to the real packet end */
++				if ((pGroup + 8) > (pIpHeader + PktLen))
++					break;
++
+ 				GroupType = (UCHAR)(*pGroup);
+ 				AuxDataLen = (UCHAR)(*(pGroup + 1));
+ 				numOfSources = ntohs(*((UINT16 *)(pGroup + 2)));
+@@ -2875,7 +2887,8 @@
+ 	IN PUCHAR pDstMacAddr,
+ 	IN PUCHAR pIpHeader,
+ 	OUT UINT8 *pProtoType,
+-	OUT PUCHAR *pMldHeader)
++	OUT PUCHAR *pMldHeader,
++	IN UINT32 PktLen)
+ {
+ 	BOOLEAN result = FALSE;
+ 	UINT16 IpProtocol = ntohs(*((UINT16 *)(pIpHeader)));
+@@ -2895,6 +2908,10 @@
+ 		UINT32 offset = IPV6_HDR_LEN;
+ 
+ 		while (nextProtocol != IPV6_NEXT_HEADER_ICMPV6) {
++			/* M9 fix: bound ext-header chain walk to the real packet end */
++			if (PktLen && ((offset + 8) > (PktLen - 2)))
++				return FALSE;
++
+ 			if (IPv6ExtHdrHandle((RT_IPV6_EXT_HDR *)(pIpHeader + offset), &nextProtocol, &offset) == FALSE)
+ 				break;
+ 		}
+@@ -3061,7 +3078,8 @@
+ 	IN PUCHAR pIpHeader,
+ 	IN MAC_TABLE_ENTRY *pEntry,
+ 
+-	UINT8 Wcid)
++	UINT8 Wcid,
++	UINT16 PktLen)
+ {
+ 	INT i;
+ 	UCHAR GroupType;
+@@ -3080,7 +3098,13 @@
+ 	UCHAR TVModeType = 0;
+ #endif /* IGMP_TVM_SUPPORT */
+ 
+-	if (isMldPkt(pDstMacAddr, pIpHeader, &MldType, &pMldHeader) == TRUE) {
++	/* M9 fix: validate packet length before IPv6/MLD header parsing */
++	/* R-06 fix: ConvertMulticastIP2MAC(ETH_P_IPV6) reads pIpAddr[12..15],
++	 * i.e. pMldHeader + 8 + [12..15] => 24 bytes are needed, not 8. */
++	if (PktLen < (2 + 40 + 24))
++		return;
++
++	if (isMldPkt(pDstMacAddr, pIpHeader, &MldType, &pMldHeader, PktLen) == TRUE) {
+ 		MTWF_LOG(DBG_CAT_PROTO, CATPROTO_IGMP, DBG_LVL_TRACE, ("MLD type=%0x\n", MldType));
+ 
+ #ifdef IGMP_TVM_SUPPORT
+@@ -3135,6 +3159,13 @@
+ 			pGroup = (PUCHAR)(pMldHeader + 8);
+ 
+ 			for (i = 0; i < numOfGroup; i++) {
++				/* M9 fix: clamp group-record walk to the real packet end.
++				 * R-06: an MLDv2 group record must hold 4 (Type/AuxDL/NumSrc)
++				 * + 16 (IPv6 addr) bytes, because pGroupIpAddr = pGroup + 4 is
++				 * fed to ConvertMulticastIP2MAC(ETH_P_IPV6) which reads [12..15]. */
++				if ((pGroup + 20) > (pIpHeader + PktLen))
++					break;
++
+ 				GroupType = (UCHAR)(*pGroup);
+ 				AuxDataLen = (UCHAR)(*(pGroup + 1));
+ 				numOfSources = ntohs(*((UINT16 *)(pGroup + 2)));
+@@ -3231,7 +3262,8 @@
+ 	PUCHAR pMldHeader;
+ 	BOOLEAN isMLDquery = FALSE;
+ 
+-	if (isMldPkt(pDstMacAddr, pIpHeader, &MldType, &pMldHeader) == TRUE) {
++	/* M9 fix: A4_CONN path (not built on K2P) has no packet length here, pass 0 */
++	if (isMldPkt(pDstMacAddr, pIpHeader, &MldType, &pMldHeader, 0) == TRUE) {
+ 		switch (MldType) {
+ 		case MLD_LISTENER_QUERY:
+ 			MTWF_LOG(DBG_CAT_PROTO, CATPROTO_IGMP, DBG_LVL_INFO, ("isMLDquery-> MLD type=0x%x MLD_LISTENER_QUERY\n", MldType));
+--- a/trunk/linux-4.4.x/drivers/net/wireless/mediatek/mt7615/embedded/include/igmp_snoop.h
++++ b/trunk/linux-4.4.x/drivers/net/wireless/mediatek/mt7615/embedded/include/igmp_snoop.h
+@@ -154,7 +154,8 @@
+ 	IN PUCHAR pSrcMacAddr,
+ 	IN PUCHAR pIpHeader,
+ 	IN MAC_TABLE_ENTRY *pEntry,
+-	UINT8 Wcid);
++	UINT8 Wcid,
++	UINT16 PktLen);
+ 
+ #ifdef A4_CONN
+ /* Indicate if Specific Pkt is an IGMP query message*/
+@@ -168,7 +169,8 @@
+ 	IN PUCHAR pDstMacAddr,
+ 	IN PUCHAR pIpHeader,
+ 	OUT UINT8 *pProtoType,
+-	OUT PUCHAR * pMldHeader);
++	OUT PUCHAR * pMldHeader,
++	IN UINT32 PktLen);
+ 
+ BOOLEAN IPv6MulticastFilterExcluded(
+ 	IN PUCHAR pDstMacAddr,
+@@ -180,7 +182,8 @@
+ 	IN PUCHAR pSrcMacAddr,
+ 	IN PUCHAR pIpHeader,
+ 	IN MAC_TABLE_ENTRY *pEntry,
+-	UINT8 Wcid);
++	UINT8 Wcid,
++	UINT16 PktLen);
+ 
+ #ifdef A4_CONN
+ /* Indicate if Specific Pkt is an MLD query message*/
+--- a/trunk/linux-4.4.x/drivers/net/wireless/mediatek/mt7615/embedded/ap/ap_data.c
++++ b/trunk/linux-4.4.x/drivers/net/wireless/mediatek/mt7615/embedded/ap/ap_data.c
+@@ -4082,6 +4082,8 @@
+ 		INT IpHeaderLen;
+ 		UCHAR IgmpVerType;
+ 		PUCHAR pIgmpHeader;
++		/* M9 fix: real length available for IGMP/MLD parsing */
++		UINT16 IgmpPktLen = (pRxBlk->DataSize > 12) ? (UINT16)(pRxBlk->DataSize - 12) : 0;
+ 		PUCHAR pGroupIpAddr;
+ 		UCHAR GroupMacAddr[6];
+ 		PUCHAR pGroupMacAddr = (PUCHAR)&GroupMacAddr;
+@@ -4099,9 +4101,9 @@
+ 		}
+ #endif
+ 		if (protoType == ETH_P_IP)
+-			IGMPSnooping(pAd, pDA, pSA, pData, pEntry, pRxBlk->wcid);
++			IGMPSnooping(pAd, pDA, pSA, pData, pEntry, pRxBlk->wcid, IgmpPktLen);
+ 		else if (protoType == ETH_P_IPV6)
+-			MLDSnooping(pAd, pDA, pSA,  pData, pEntry, pRxBlk->wcid);
++			MLDSnooping(pAd, pDA, pSA,  pData, pEntry, pRxBlk->wcid, IgmpPktLen);
+ 
+ 		if (isIgmpPkt(pDA, pData)) {
+ 			IpHeaderLen = (*(pData + 2) & 0x0f) * 4;
+@@ -4432,13 +4434,13 @@
+ 			PUCHAR pSA = pRxBlk->Addr2;
+ 			PUCHAR pData = NdisEqualMemory(SNAP_802_1H, pRxBlk->pData, 6) ? (pRxBlk->pData + 6) : pRxBlk->pData;
+ 			UINT16 protoType = OS_NTOHS(*((UINT16 *)(pData)));
+-
+-
++			/* M9 fix: real length available for IGMP/MLD parsing */
++			UINT16 IgmpPktLen = (pRxBlk->DataSize > (UINT16)(pData - pRxBlk->pData)) ? (UINT16)(pRxBlk->DataSize - (UINT16)(pData - pRxBlk->pData)) : 0;
+ 
+ 			if (protoType == ETH_P_IP)
+-				IGMPSnooping(pAd, pDA, pSA, pData, pEntry, pRxBlk->wcid);
++				IGMPSnooping(pAd, pDA, pSA, pData, pEntry, pRxBlk->wcid, IgmpPktLen);
+ 			else if (protoType == ETH_P_IPV6)
+-				MLDSnooping(pAd, pDA, pSA,  pData, pEntry, pRxBlk->wcid);
++				MLDSnooping(pAd, pDA, pSA,  pData, pEntry, pRxBlk->wcid, IgmpPktLen);
+ 		}
+ 
+ #endif /* IGMP_SNOOP_SUPPORT */
