@@ -8,12 +8,14 @@
  
  # openssl use CROSS_COMPILE prefix
  CC = gcc
-@@ -41,6 +41,11 @@
+@@ -39,8 +39,13 @@
+ 	fi )
+ 
  extract_test:
++	# R-02 fix: GitHub release tarball unpacks as openssl-OpenSSL_1_1_1w,
++	# which does not match SRC_NAME. Normalize the directory name.
  	( if [ ! -d $(SRC_NAME) ]; then \
  		tar -xf $(SRC_NAME).tar.gz; \
-+		# R-02 fix: GitHub release tarball unpacks as openssl-OpenSSL_1_1_1w,
-+		# which does not match SRC_NAME. Normalize the directory name.
 +		for d in openssl-OpenSSL_* ; do \
 +			[ -d "$$d" ] && mv -f "$$d" $(SRC_NAME) ; \
 +		done ; \
