@@ -1,0 +1,36 @@
+--- a/trunk/linux-4.4.x/drivers/net/wireless/mediatek/mt7615/os/linux/ap_ioctl.c
++++ b/trunk/linux-4.4.x/drivers/net/wireless/mediatek/mt7615/os/linux/ap_ioctl.c
+@@ -30,6 +30,7 @@
+ #include "rt_os_util.h"
+ #include "rt_os_net.h"
+ #include <linux/wireless.h>
++#include <linux/capability.h>
+ #include "rtmp_def.h"
+ 
+ struct iw_priv_args ap_privtab[] = {
+@@ -153,6 +154,25 @@
+ 		 */
+ 		return -ENETDOWN;
+ 	}
++
++	/* R-201-1 / R-202-1: wext_handle_ioctl() delivers every private command
++	 * (SIOCIWFIRSTPRIV..SIOCIWLASTPRIV) to ndo_do_ioctl without any
++	 * capability check whenever the command value is ODD, because
++	 * IW_IS_SET(cmd) is (!((cmd) & 0x1)) -- net/wireless/wext-core.c:966.
++	 * This driver defines 16 odd private commands (include/os/rt_os.h) and
++	 * four of them reach hardware or dereference a user pointer directly:
++	 *   RT_PRIV_IOCTL    (0x8BE1) -> FT_RRB heap overflow        (R-199-1)
++	 *   RTPRIV_IOCTL_E2P (0x8BE7) -> EEPROM/EFUSE write          (R-201-1)
++	 *   RTPRIV_IOCTL_GSITESURVEY (0x8BED) -> strchr() on user ptr (R-202-1)
++	 *   MTPRIV_IOCTL_RD  (0x8BF7) -> strchr()/NUL write on user ptr (R-202-1)
++	 * Require CAP_NET_ADMIN for the whole private range.  Standard WEXT
++	 * commands (SIOCGIWNAME etc., all below SIOCIWFIRSTPRIV) are untouched,
++	 * so unprivileged iwconfig keeps working.
++	 * NOTE: this does not make the copy_*_user under page_lock safe, and it
++	 * does not replace the per-function fixes; it is the common gate. */
++	if (cmd >= SIOCIWFIRSTPRIV && cmd <= SIOCIWLASTPRIV &&
++	    !capable(CAP_NET_ADMIN))
++		return -EPERM;
+ 	memcpy(wrq->ifr_ifrn.ifrn_name, wrqin->ifr_ifrn.ifrn_name, IFNAMSIZ);
+ 
+ 	wrq->u.data.pointer = wrqin->u.data.pointer;
