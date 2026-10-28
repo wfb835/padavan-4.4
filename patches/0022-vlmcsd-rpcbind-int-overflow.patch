@@ -1,0 +1,33 @@
+--- a/trunk/user/vlmcsd/Makefile	2026-10-23 22:52:56.091890900 +0800
++++ b/trunk/user/vlmcsd/Makefile	2026-10-23 22:52:56.095888600 +0800
+@@ -13,6 +13,7 @@
+ extract_test:
+ 	( if [ ! -d $(THISDIR)/$(SRC_NAME) ]; then \
+ 		tar -xf $(SRC_NAME).tar.gz; \
++		patch -d $(SRC_NAME) -p1 -i ../vlmcsd-rpcbind-overflow.patch; \
+ 	fi )
+ 
+ romfs:
+--- /dev/null
++++ b/trunk/user/vlmcsd/vlmcsd-rpcbind-overflow.patch
+@@ -0,0 +1,20 @@
++--- a/src/rpc.c	2026-10-23 22:52:17.873511300 +0800
+++++ b/src/rpc.c	2026-10-23 22:52:18.181359700 +0800
++@@ -412,7 +412,16 @@
++ 
++ 	const unsigned int numCtxItems = LE32(Request->NumCtxItems);
++ 
++-	if (RequestSize < sizeof(RPC_BIND_REQUEST) - sizeof(Request->CtxItems[0]) + numCtxItems * sizeof(Request->CtxItems[0])) return FALSE;
+++	/* R178 fix: the original expression computed numCtxItems * sizeof(CtxItem)
+++	 * in 32-bit arithmetic. Because sizeof(CtxItem) is 44 and gcd(44, 2^32) = 4,
+++	 * a NumCtxItems of 0x40000000 makes the product wrap to exactly 0, so the
+++	 * bound collapsed to "RequestSize < 12" and always passed. rpcBind() then
+++	 * walked up to 2^30 context items, reading and writing far beyond the stack
+++	 * request/response buffers (remote crash, stack corruption).
+++	 * Divide first: this form cannot overflow.
+++	 */
+++	if (numCtxItems > (RequestSize - (sizeof(RPC_BIND_REQUEST) - sizeof(Request->CtxItems[0]))) / sizeof(Request->CtxItems[0]))
+++		return FALSE;
++ 
++ #if defined(_PEDANTIC) && !defined(NO_LOG)
++ 	CheckRpcBindRequest(Request, RequestSize);
