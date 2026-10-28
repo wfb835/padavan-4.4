@@ -1,0 +1,110 @@
+From ff77acc51a4ad5d88660f0ac25a34a1f6f9060c6 Mon Sep 17 00:00:00 2001
+Subject: [PATCH] rc: watchdog: feed MT7621 SoC hardware watchdog
+
+在用户态 watchdog 进程里 open(/dev/watchdog) 并每 10s 喂狗。
+覆盖「全系统挂死 / watchdog 自身被阻塞」类故障；
+不覆盖「系统仍活、仅 WiFi 阻塞」类（那类由免编译 wifi_guard 负责）。
+见 RouterOS_WR330 审计归档 doc/D12 §4.4 P2-3。
+
+--- a/trunk/user/rc/watchdog.c
++++ b/trunk/user/rc/watchdog.c
+@@ -34,6 +34,21 @@
+ 
+ #include "rc.h"
+ 
++#include <sys/ioctl.h>
++/* 兜底定义：若工具链未提供 <linux/watchdog.h>，直接用内核 4.4 的【字面值】。
++ * ★ 这里【刻意不用 _IOR / _IOWR 宏】—— 它们依赖 libc 头文件提供，
++ *   uClibc / musl 下未必有（Padavan 工具链非 glibc）。
++ *   WDIOC_KEEPALIVE  = _IOR('W', 5, int)  = 0x80045705
++ *   WDIOC_SETTIMEOUT = _IOWR('W', 6, int) = 0xC0045706
++ *   （与 linux/watchdog.h 的定义逐位一致，可交叉验证）
++ */
++#ifndef WDIOC_KEEPALIVE
++#define WDIOC_KEEPALIVE		0x80045705
++#endif
++#ifndef WDIOC_SETTIMEOUT
++#define WDIOC_SETTIMEOUT	0xC0045706
++#endif
++
+ #define WD_NORMAL_PERIOD	10		/* 10s */
+ 
+ #define WD_NOTIFY_ID_WIFI2	1
+@@ -41,6 +56,11 @@
+ 
+ #define WD_PID_FILE		"/var/run/watchdog.pid"
+ 
++#define HW_WDT_DEV		"/dev/watchdog"
++#define HW_WDT_TIMEOUT		60	/* seconds (mt7621 max = 65) */
++
++static int hw_wdt_fd = -1;
++
+ enum
+ {
+ 	RADIO5_ACTIVE = 0,
+@@ -70,6 +90,40 @@
+ 	setitimer(ITIMER_REAL, &wd_itv, NULL);
+ }
+ 
++/* ---------- 硬件看门狗（MT7621 SoC WDT）喂狗 ----------
++ * 目的：覆盖「全系统挂死 / watchdog 自身被阻塞」类故障 —— 无人喂狗 ⇒ SoC 硬复位。
++ * 覆盖范围（重要，勿误读）：
++ *   OK 全系统挂死（进程都跑不动）
++ *   OK watchdog 自身进 D 态（被阻塞 ⇒ 喂不了狗）
++ *   NO 【不保证】「系统仍活、仅 WiFi 阻塞而 watchdog 仍能正常跑」的情形
++ *      —— 那类由免编译的 wifi_guard 守护负责（见 doc/D12 §4.3）。
++ * 注意：本补丁【不写 magic-close V】；进程退出时 fd 关闭：
++ *   - 内核若开 CONFIG_WATCHDOG_NOWAYOUT=y ⇒ 计时器继续跑（更强，但不可 disarm）
++ *   - 未开（上游默认）⇒ fd 关闭即自动停表（更温和，本归档推荐先这样）
++ */
++static void
++hw_wdt_open(void)
++{
++	int t = HW_WDT_TIMEOUT;
++
++	hw_wdt_fd = open(HW_WDT_DEV, O_WRONLY);
++	if (hw_wdt_fd < 0) {
++		logmessage("watchdog", "hw_wdt: open %s FAILED (errno=%d)", HW_WDT_DEV, errno);
++		return;
++	}
++	if (ioctl(hw_wdt_fd, WDIOC_SETTIMEOUT, &t) < 0)
++		logmessage("watchdog", "hw_wdt: SETTIMEOUT failed (errno=%d)", errno);
++	ioctl(hw_wdt_fd, WDIOC_KEEPALIVE, 0);
++	logmessage("watchdog", "hw_wdt: armed, timeout=%ds", t);
++}
++
++static void
++hw_wdt_feed(void)
++{
++	if (hw_wdt_fd >= 0)
++		ioctl(hw_wdt_fd, WDIOC_KEEPALIVE, 0);
++}
++
+ #ifdef HTTPD_CHECK
+ #define DETECT_HTTPD_FILE "/tmp/httpd_check_result"
+ static int
+@@ -472,6 +526,14 @@
+ {
+ 	int is_ap_mode = get_ap_mode();
+ 
++	/* feed hardware watchdog FIRST —— 本 handler 的后续步骤可能阻塞
++	 * (svc_timecheck()/inet_handler() 内有 system() 调用，会 fork+wait)，
++	 * 先喂狗可把喂狗延迟降到最低；若后续步骤卡死，则本 handler 不再返回、
++	 * 且 SIGALRM 被 sa_mask 屏蔽 ⇒ 下一个 10s 周期不会到来 ⇒
++	 * 60s 后 WDT 依然会硬复位（这正是期望的兜底行为）。
++	 */
++	hw_wdt_feed();
++
+ 	/* check for time-dependent services */
+ 	svc_timecheck();
+ 
+@@ -583,6 +645,9 @@
+ 	/* set timer */
+ 	wd_alarmtimer(WD_NORMAL_PERIOD, 0);
+ 
++	/* arm hardware watchdog (MT7621 SoC WDT) */
++	hw_wdt_open();
++
+ 	/* most of time it goes to sleep */
+ 	while (1) {
+ 		pause();
