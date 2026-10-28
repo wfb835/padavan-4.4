@@ -1,0 +1,136 @@
+--- a/trunk/linux-4.4.x/drivers/net/ethernet/raeth/raether_pdma.c
++++ b/trunk/linux-4.4.x/drivers/net/ethernet/raeth/raether_pdma.c
+@@ -291,7 +291,7 @@
+ 			tx_ring = &ei_local->tx_ring0[*tx_cpu_owner_idx];
+ 
+ 			while (tx_ring->txd_info2.DDONE_bit == 0) {
+-				if (gmac_no == 2) {
++				if (gmac_no == 2 && ei_local->pseudo_dev) {
+ 					p_ad =
+ 					    netdev_priv(ei_local->pseudo_dev);
+ 					p_ad->stat.tx_errors++;
+@@ -361,7 +361,7 @@
+ 					&ei_local->tx_ring0[*tx_cpu_owner_idx];
+ 
+ 				while (tx_ring->txd_info2.DDONE_bit == 0) {
+-					if (gmac_no == 2) {
++					if (gmac_no == 2 && ei_local->pseudo_dev) {
+ 						p_ad =
+ 						    netdev_priv
+ 						    (ei_local->pseudo_dev);
+@@ -579,6 +579,31 @@
+ 	return 0;
+ }
+ 
++/* Bounded wait for one TX descriptor to be handed back by the MAC.
++ * Called with page_lock held and IRQs disabled: the normal path is a
++ * single bit test; 2 ms is the failure-path ceiling (a 1500-byte frame
++ * takes ~12 us at 1 Gbps).
++ */
++#define EI_PDMA_TX_TIMEOUT_US	2000
++static inline int ei_pdma_tx_wait_done(struct END_DEVICE *ei_local,
++				       unsigned int idx)
++{
++	struct PDMA_txdesc *tx_ring = &ei_local->tx_ring0[idx];
++	unsigned int timeout = EI_PDMA_TX_TIMEOUT_US;
++
++	if (likely(tx_ring->txd_info2.DDONE_bit))
++		return 0;
++
++	do {
++		udelay(1);
++		barrier();
++		if (tx_ring->txd_info2.DDONE_bit)
++			return 0;
++	} while (--timeout);
++
++	return -ETIMEDOUT;
++}
++
+ static inline int rt2880_pdma_eth_send(struct net_device *dev,
+ 				       struct sk_buff *skb, int gmac_no,
+ 				       unsigned int num_of_frag)
+@@ -591,21 +616,30 @@
+ 	unsigned long tx_cpu_owner_idx0 = sys_reg_read(TX_CTX_IDX0);
+ #endif
+ 	struct PSEUDO_ADAPTER *p_ad;
++	unsigned int i, num_desc, slots;
+ 	int err;
+ 
+-	while (ei_local->tx_ring0[tx_cpu_owner_idx0].txd_info2.DDONE_bit == 0) {
+-		if (gmac_no == 2) {
+-			if (ei_local->pseudo_dev) {
++	/* Preflight every descriptor this packet will touch (plus the next
++	 * one) BEFORE overwriting any of them.  0042 made page_lock irqsave,
++	 * so a stalled MAC used to spin here with IRQs disabled -> hard
++	 * lockup.  Each wait is bounded to 2 ms; on timeout drop the packet
++	 * before the ring is modified.  The TSO fill helpers also test
++	 * DDONE; this preflight guarantees their loops cannot spin.
++	 */
++	slots = num_of_frag ? num_of_frag : 1;
++	if (skb->len <= skb->data_len)
++		slots++;	/* TSO still consumes the zero-length SDP0 slot */
++	num_desc = (slots + 1) >> 1;
++	for (i = 0; i <= num_desc; i++) {
++		if (ei_pdma_tx_wait_done(ei_local,
++				(tx_cpu_owner_idx0 + i) % num_tx_desc)) {
++			if (gmac_no == 2 && ei_local->pseudo_dev) {
+ 				p_ad = netdev_priv(ei_local->pseudo_dev);
+ 				p_ad->stat.tx_errors++;
+ 			} else {
+-				pr_err
+-				    ("pseudo_dev is still not initialize ");
+-				pr_err
+-				    ("but receive packet from GMAC2\n");
++				ei_local->stat.tx_errors++;
+ 			}
+-		} else {
+-			ei_local->stat.tx_errors++;
++			return -EBUSY;
+ 		}
+ 	}
+ 
+@@ -617,15 +651,8 @@
+ 	if (err)
+ 		return err;
+ 
++	/* Preflight above already waited for this descriptor. */
+ 	tx_cpu_owner_idx0 = (tx_cpu_owner_idx0 + 1) % num_tx_desc;
+-	while (ei_local->tx_ring0[tx_cpu_owner_idx0].txd_info2.DDONE_bit == 0) {
+-		if (gmac_no == 2) {
+-			p_ad = netdev_priv(ei_local->pseudo_dev);
+-			p_ad->stat.tx_errors++;
+-		} else {
+-			ei_local->stat.tx_errors++;
+-		}
+-	}
+ #ifdef CONFIG_RAETH_RW_PDMAPTR_FROM_VAR
+ 	ei_local->tx_cpu_owner_idx0 = tx_cpu_owner_idx0;
+ #endif
+@@ -636,7 +663,7 @@
+ 
+ 	sys_reg_write(TX_CTX_IDX0, cpu_to_le32((u32)tx_cpu_owner_idx0));
+ 
+-	if (gmac_no == 2) {
++	if (gmac_no == 2 && ei_local->pseudo_dev) {
+ 		p_ad = netdev_priv(ei_local->pseudo_dev);
+ 		p_ad->stat.tx_packets++;
+ 		p_ad->stat.tx_bytes += length;
+@@ -703,7 +730,7 @@
+ 	    (ei_local->skb_free[tx_cpu_owner_idx] == 0)) {
+ 		if (rt2880_pdma_eth_send(dev, skb, gmac_no, num_of_frag) < 0) {
+ 			dev_kfree_skb_any(skb);
+-			if (gmac_no == 2) {
++			if (gmac_no == 2 && ei_local->pseudo_dev) {
+ 				p_ad = netdev_priv(ei_local->pseudo_dev);
+ 				p_ad->stat.tx_dropped++;
+ 			} else {
+@@ -718,7 +745,7 @@
+ 		if (ei_local->skb_free[tx_cpu_owner_idx_next2] != 0)
+ 			ei_local->tx_ring_full = 1;
+ 	} else {
+-		if (gmac_no == 2) {
++		if (gmac_no == 2 && ei_local->pseudo_dev) {
+ 			p_ad = netdev_priv(ei_local->pseudo_dev);
+ 			p_ad->stat.tx_dropped++;
+ 		} else {
