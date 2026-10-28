@@ -95,6 +95,21 @@ jobs:
           ref: 955cf611498fda5fa6ece2c7197f4234573b47e6
           persist-credentials: false
 
+      # 第 211 轮 P0 修复（首次全量构建实测失败于 Step 7）：
+      #   checkout 钉在基线 SHA ⇒ 源码基线不变（R-04 精神保留），但 0001/0042-0050 等补丁
+      #   只存在于 main 的新提交里，不叠加就会 "patch not found"（实测：Step 7 Apply WDT patch 失败、
+      #   Step 8 及之后全部 skipped）。已验证 main 相对 955cf61 仅变更 patches 40 + workflow 1，
+      #   trunk 与 configs 源码基线未受影响。
+      - name: Overlay build kit from main (patches + configs)
+        run: |
+          set -e
+          git fetch --depth=1 origin main
+          git checkout FETCH_HEAD -- patches configs
+          echo "== overlay 完成 =="
+          echo "  patches 文件数: $(ls patches | wc -l)"
+          test -f patches/0001-rc-watchdog-feed-hw-wdt.patch
+          test -f configs/K2P-final2.config
+
       - name: Install dependencies
         run: |
           sudo apt-get update
