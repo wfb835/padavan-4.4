@@ -1,0 +1,17 @@
+--- a/trunk/user/rc/services_ex.c
++++ b/trunk/user/rc/services_ex.c
+@@ -131,6 +131,14 @@
+ 			snprintf(nvram_key, sizeof(nvram_key), "dhcp_staticmac_x%d", j);
+ 			smac = nvram_safe_get(nvram_key);
+ 			if (strlen(smac) != 12)
++				continue;
++			/* R-194-7: only the length was checked, so a 12-byte payload such
++			 * as ";telnetd;ab" flowed into
++			 *   doSystem("arp -i %s -s %s %s", IFNAME_BR, sip4, smac)
++			 * below.  A MAC field must be hex digits only.
++			 * (The localhost write path that made this reachable without
++			 *  credentials is closed by 0032; this is defence in depth.) */
++			if (strspn(smac, "0123456789abcdefABCDEF") != 12)
+ 				continue;
+ 			snprintf(nvram_key, sizeof(nvram_key), "dhcp_staticip_x%d", j);
+ 			sip4 = nvram_safe_get(nvram_key);
