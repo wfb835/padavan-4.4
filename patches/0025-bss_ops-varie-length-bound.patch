@@ -1,0 +1,24 @@
+--- a/trunk/linux-4.4.x/drivers/net/wireless/mediatek/mt7615/embedded/mgmt/bss_ops.c
++++ b/trunk/linux-4.4.x/drivers/net/wireless/mediatek/mt7615/embedded/mgmt/bss_ops.c
+@@ -883,11 +883,19 @@
+ #endif
+ 
+ 	/* New for microsoft Variable IEs*/
+-	if (LengthVIE != 0) {
++	/* F87-1: VarIEs[] 只有 MAX_VIE_LEN 字节，且其后的 pVarIeFromProbRsp /
++	 * VarIeFromProbeRspLen 是同一结构体内紧跟的字段。原实现直接按
++	 * LengthVIE 拷（无上界），单信标即可覆盖这些指针 ⇒ 任意内核写。 */
++	if (LengthVIE != 0 && LengthVIE <= MAX_VIE_LEN) {
+ 		pBss->VarIELen = LengthVIE;
+ 		NdisMoveMemory(pBss->VarIEs, pVIE, pBss->VarIELen);
+-	} else
++	} else {
++		if (LengthVIE > MAX_VIE_LEN)
++			MTWF_LOG(DBG_CAT_MLME, DBG_SUBCAT_ALL, DBG_LVL_WARN,
++					 ("%s() - Variable IEs too long (%u > %u), dropped\n",
++					  __func__, (unsigned int)LengthVIE, (unsigned int)MAX_VIE_LEN));
+ 		pBss->VarIELen = 0;
++	}
+ 
+ #ifdef CONFIG_MAP_SUPPORT
+ 	pBss->map_vendor_ie_found = ie_list->vendor_ie.map_vendor_ie_found;
