@@ -1,0 +1,31 @@
+--- a/trunk/linux-4.4.x/drivers/net/ethernet/raeth/raether.c	2026-10-23 22:05:00.170442700 +0800
++++ b/trunk/linux-4.4.x/drivers/net/ethernet/raeth/raether.c	2026-10-23 22:05:00.446466100 +0800
+@@ -277,6 +277,20 @@
+ 				 rx_ring->rxd_info1.PDP0,
+ 				 length, DMA_FROM_DEVICE);
+ 
++		/* R177 fix: PLEN0 is a 14-bit field (max 16383) written by the DMA
++		 * engine, while the RX buffer is only MAX_RX_LENGTH (1536) and the
++		 * skb tailroom is ~1758. skb_put() below would trip skb_over_panic()
++		 * on any longer descriptor, so drop oversized frames here.
++		 */
++		if (unlikely(length > MAX_RX_LENGTH)) {
++			if (rx_ring->rxd_info4.SP == 2)
++				p_ad->stat.rx_dropped++;
++			else
++				ei_local->stat.rx_dropped++;
++			dev_kfree_skb_any(rx_skb);
++			goto rx_recycle_desc;
++		}
++
+ 		prefetch(rx_skb->data);
+ 
+ 		/* skb processing */
+@@ -369,6 +383,7 @@
+ 			ei_local->stat.rx_bytes += length;
+ 		}
+ 
++rx_recycle_desc:
+ 		/* init RX desc. */
+ 		fe_rx_desc_init(rx_ring, dma_addr);
+ 		ei_local->netrx_skb_data[0][rx_dma_owner_idx] = new_data;
