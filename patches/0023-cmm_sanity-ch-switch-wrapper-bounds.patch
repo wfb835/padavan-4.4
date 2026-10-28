@@ -1,0 +1,42 @@
+--- a/trunk/linux-4.4.x/drivers/net/wireless/mediatek/mt7615/embedded/common/cmm_sanity.c
++++ b/trunk/linux-4.4.x/drivers/net/wireless/mediatek/mt7615/embedded/common/cmm_sanity.c
+@@ -908,19 +908,32 @@
+ 			break;
+ 
+ 		case IE_CH_SWITCH_WRAPPER: {
+-			INT8 ch_sw_wrp_len = pEid->Len;
++			/* F84-2: the original code stored the length in INT8 (Len >= 128
++			 * went negative) and copied into wb_info without any bound; the
++			 * else branch subtracted the length from itself, so only the
++			 * first subelement was ever checked.  Use UINT8 and validate
++			 * every subelement against the remaining wrapper length.
++			 * R-194-5: the copy source was the subelement header
++			 * (ID + Len), so all three wb_info fields ended up shifted by
++			 * 2 bytes - skip the header and copy at most the element size. */
++			UINT8 ch_sw_wrp_len = pEid->Len;
+ 			UCHAR *subelement = &pEid->Octet[0];
+-			INT8		len_subelement = 0;
+-
+-			while (ch_sw_wrp_len > 0) {
++			UINT8 len_subelement = 0;
++
++			while (ch_sw_wrp_len > 2) {
+ 				len_subelement = *(subelement + 1);
++				/* subelement header (2 B) + body must fit in what is left */
++				if ((UINT16)len_subelement + 2 > (UINT16)ch_sw_wrp_len)
++					break;
+ 
+ 				if (*subelement == IE_WIDE_BW_CH_SWITCH) {
+-					NdisMoveMemory(&ie_list->wb_info, subelement, len_subelement);
++					if (len_subelement > sizeof(ie_list->wb_info))
++						len_subelement = sizeof(ie_list->wb_info);
++					NdisMoveMemory(&ie_list->wb_info, subelement + 2, len_subelement);
+ 					break;
+ 				} else {
+-					subelement  += ch_sw_wrp_len;
+-					ch_sw_wrp_len -= ch_sw_wrp_len;
++					subelement  += (2 + len_subelement);
++					ch_sw_wrp_len -= (2 + len_subelement);
+ 				}
+ 			}
+ 		}
