@@ -1,0 +1,26 @@
+--- a/trunk/linux-4.4.x/drivers/net/ethernet/raeth/raether.c
++++ b/trunk/linux-4.4.x/drivers/net/ethernet/raeth/raether.c
+@@ -2293,15 +2293,23 @@
+ 	struct ra_mii_ioctl_data mii;
+ 	unsigned long ret;
+ 
++	memset(&mii, 0, sizeof(mii));
++
+ 	switch (cmd) {
+ 	case RAETH_MII_READ:
+ 		ret = copy_from_user(&mii, ifr->ifr_data, sizeof(mii));
++		if (ret)
++			return -EFAULT;
+ 		mii_mgr_read(mii.phy_id, mii.reg_num, &mii.val_out);
+ 		ret = copy_to_user(ifr->ifr_data, &mii, sizeof(mii));
++		if (ret)
++			return -EFAULT;
+ 		break;
+ 
+ 	case RAETH_MII_WRITE:
+ 		ret = copy_from_user(&mii, ifr->ifr_data, sizeof(mii));
++		if (ret)
++			return -EFAULT;
+ 		mii_mgr_write(mii.phy_id, mii.reg_num, mii.val_in);
+ 		break;
+ 	default:
