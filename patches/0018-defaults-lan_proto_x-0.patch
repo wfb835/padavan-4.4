@@ -1,0 +1,11 @@
+--- a/trunk/user/shared/defaults.c	2026-10-23 16:09:36.378304900 +0800
++++ b/trunk/user/shared/defaults.c	2026-10-23 16:09:36.723325100 +0800
+@@ -48,7 +48,7 @@
+ 	{ "lan_hwaddr", "" },			/* LAN interface MAC address */
+ 
+ 	/* LAN TCP/IP parameters */
+-	{ "lan_proto_x", "1" },			/* DHCP client [static|dhcp] in AP mode */
++	{ "lan_proto_x", "0" },			/* DHCP client [static|dhcp] in AP mode */
+ 	{ "lan_dhcpd_x", "0" },			/* DHCP server in AP mode */
+ 	{ "lan_ipaddr", DEF_LAN_ADDR },		/* LAN IP address */
+ 	{ "lan_netmask", DEF_LAN_MASK },	/* LAN netmask */
