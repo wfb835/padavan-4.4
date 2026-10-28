@@ -1,0 +1,32 @@
+--- a/trunk/libs/libwebsockets/Makefile
++++ b/trunk/libs/libwebsockets/Makefile
+@@ -1,5 +1,5 @@
+-SRC_NAME=libwebsockets-4.1.4
+-SRC_URL=https://github.com/warmcat/libwebsockets/archive/v4.1.4.tar.gz
++SRC_NAME=libwebsockets-4.5.8
++SRC_URL=https://github.com/warmcat/libwebsockets/archive/v4.5.8.tar.gz
+ 
+ all: download_test extract_test config_test
+ 	$(MAKE) -j$(HOST_NCPU) -C $(SRC_NAME)/build
+@@ -40,7 +40,6 @@
+ 	-DLWS_WITH_LEJP=ON \
+ 	-DLWS_WITH_LWSAC=ON \
+ 	-DLWS_WITH_CUSTOM_HEADERS=OFF \
+-	-DLWS_WITH_SEQUENCER=OFF \
+ 	-DLWS_ROLE_RAW_FILE=OFF \
+ 	-DLWS_WITH_HTTP2=OFF \
+ 	-DLWS_IPV6=ON \
+--- /dev/null
++++ b/trunk/libs/libwebsockets/libwebsockets-4.5.8.patch
+@@ -0,0 +1,11 @@
++--- a/cmake/lws_config.h.in	2026-10-23 16:18:32.095640100 +0800
+++++ b/cmake/lws_config.h.in	2026-10-23 16:18:32.398920700 +0800
++@@ -7,7 +7,7 @@
++ #endif
++ 
++ #define LWS_INSTALL_DATADIR "${CMAKE_INSTALL_PREFIX}/share"
++-#define LWS_INSTALL_LIBDIR "${CMAKE_INSTALL_PREFIX}/${LWS_INSTALL_LIB_DIR}"
+++#define LWS_INSTALL_LIBDIR "/lib"
++ #define LWS_LIBRARY_VERSION_MAJOR ${LWS_LIBRARY_VERSION_MAJOR}
++ #define LWS_LIBRARY_VERSION_MINOR ${LWS_LIBRARY_VERSION_MINOR}
++ #define LWS_LIBRARY_VERSION_PATCH_ELABORATED ${LWS_LIBRARY_VERSION_PATCH_ELABORATED}
