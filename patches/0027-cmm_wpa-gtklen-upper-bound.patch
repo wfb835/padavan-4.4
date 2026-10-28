@@ -1,0 +1,17 @@
+--- a/trunk/linux-4.4.x/drivers/net/wireless/mediatek/mt7615/embedded/security/cmm_wpa.c
++++ b/trunk/linux-4.4.x/drivers/net/wireless/mediatek/mt7615/embedded/security/cmm_wpa.c
+@@ -3962,8 +3962,12 @@
+ 						/* Get GTK length - refer to IEEE 802.11i-2004 p.82 */
+ 						GTKLEN = pKDE->Len - 6;
+ 
+-						if (GTKLEN < LEN_WEP64) {
+-							MTWF_LOG(DBG_CAT_SEC, DBG_SUBCAT_ALL, DBG_LVL_ERROR, ("ERROR: GTK Key length is too short (%d)\n", GTKLEN));
++						/* F79-1: 只查下界 ⇒ GTK[32] 可被写穿到 249 B。
++						 * GTKLEN 是 UCHAR，pKDE->Len - 6 最大 249。 */
++						if (GTKLEN < LEN_WEP64 || GTKLEN > sizeof(GTK)) {
++							MTWF_LOG(DBG_CAT_SEC, DBG_SUBCAT_ALL, DBG_LVL_ERROR,
++									 ("ERROR: GTK Key length invalid (%d, max %d)\n",
++									  (int)GTKLEN, (int)sizeof(GTK)));
+ 							return FALSE;
+ 						}
+ 
