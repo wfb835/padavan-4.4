@@ -1,0 +1,21 @@
+--- a/trunk/user/ttyd/Makefile
++++ b/trunk/user/ttyd/Makefile
+@@ -1,5 +1,5 @@
+-SRC_NAME=ttyd-1.6.2
+-SRC_URL=https://github.com/tsl0922/ttyd/archive/1.6.2.tar.gz
++SRC_NAME=ttyd-1.7.7
++SRC_URL=https://github.com/tsl0922/ttyd/archive/1.7.7.tar.gz
+
+ THISDIR = $(shell pwd)
+
+--- a/trunk/user/ttyd/ttyd.sh
++++ b/trunk/user/ttyd/ttyd.sh
+@@ -4,7 +4,7 @@
+ port=${nvram_ttyd_port:-"7681"}
+
+ func_start(){
+-	start-stop-daemon -S -b -x ttyd -- -i br0 -p "$port" login
++	start-stop-daemon -S -b -x ttyd -- -i br0 -W -p "$port" login
+ }
+
+ func_stop(){
