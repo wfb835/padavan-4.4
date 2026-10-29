@@ -1,0 +1,49 @@
+--- a/trunk/user/rc/watchdog.c
++++ b/trunk/user/rc/watchdog.c
+@@ -117,11 +117,27 @@
+ 	logmessage("watchdog", "hw_wdt: armed, timeout=%ds", t);
+ }
+ 
++static unsigned hw_wdt_feed_ok = 0;
++static unsigned hw_wdt_feed_fail = 0;
++static int hw_wdt_feed_last_errno = 0;
++
+ static void
+ hw_wdt_feed(void)
+ {
+-	if (hw_wdt_fd >= 0)
+-		ioctl(hw_wdt_fd, WDIOC_KEEPALIVE, 0);
++	int rc;
++
++	if (hw_wdt_fd < 0)
++		return;
++
++	/* 0055 diagnostics: count every feed outcome.
++	 * feed ok 持续增长仍 60 s 复位 ⇒ 用户态链路通、硬件未重载（落 0056 读寄存器）；
++	 * feed fail（errno=16）⇒ /dev/watchdog 被先占（修先占者，即 R-196-3）。 */
++	rc = ioctl(hw_wdt_fd, WDIOC_KEEPALIVE, 0);
++	if (rc < 0) {
++		hw_wdt_feed_fail++;
++		hw_wdt_feed_last_errno = errno;
++	} else
++		hw_wdt_feed_ok++;
+ }
+ 
+ #ifdef HTTPD_CHECK
+@@ -550,6 +566,16 @@
+ 	setkernel_tz();
+ 
+ 	storage_save_time(10);
++
++	/* 0055 diagnostics: 一条/约 60 s（WD_NORMAL_PERIOD=10 × 6 tick），日志量可控。
++	 * 刷机后 ≤3 个复位周期内抓 2~3 条即可按 0001诊断版设计_第219轮.md §4 判读。 */
++	{
++		static unsigned hw_wdt_tick;
++
++		if (((++hw_wdt_tick) % 6) == 0)
++			logmessage("watchdog", "hw_wdt: feed ok=%u fail=%u last_errno=%d",
++				   hw_wdt_feed_ok, hw_wdt_feed_fail, hw_wdt_feed_last_errno);
++	}
+ }
+ 
+ static void
