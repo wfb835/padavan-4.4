@@ -309,6 +309,14 @@ jobs:
           check_grep "trunk/linux-4.4.x/drivers/net/ethernet/raeth/raether.c" "capable(CAP_NET_ADMIN)" "R-194-4 ei_ioctl 已要求 CAP_NET_ADMIN"
           check_grep "trunk/user/rc/services_ex.c" "strspn(smac," "R-194-7 dhcp_staticmac 已校验十六进制"
           check_grep "$M/common/wnm.c"        "UINT32 buflen"                              "F117-1 buflen 已改 32 位"
+          echo "===== verify: 第 217 轮 UI 补丁（0051 / 0052）====="
+          # 0051 把 #mem_info 压成单行（否则撑爆 109px 卡片、"开机时间"被裁）
+          check_grep "trunk/user/www/n56u_ribbon_fixed/state.js" "white-space:nowrap" "0051 mem_info 已加 nowrap（防被后续补丁覆盖）"
+          # 0052 恢复 hide：tr1 td:last 是按钮位，一旦被 .html() 赋值就会丢失 hide、无法返回
+          check_grep "trunk/user/www/n56u_ribbon_fixed/state.js" "hide_adv_info" "0052 hide 按钮模板仍在"
+          if grep -q 'tr:nth-child(1) td:last' trunk/user/www/n56u_ribbon_fixed/state.js; then
+            fail "0052 tr1 td:last 不得被覆盖（否则详情表丢失 hide）"
+          fi
           echo "===== verify: 第 205 轮稳定性补丁（0036/0042/0043）====="
           check_grep "trunk/linux-4.4.x/drivers/net/wireless/mediatek/mt7615/os/linux/ap_ioctl.c" "cmd <= SIOCIWLASTPRIV" "0036 mt7615 私有 ioctl 已加范围权限门"
           check_grep "trunk/linux-4.4.x/drivers/net/ethernet/raeth/raether_pdma.c" "spin_lock_irqsave(&ei_local->page_lock, flags)" "R-200-2 xmit 已改 irqsave"
