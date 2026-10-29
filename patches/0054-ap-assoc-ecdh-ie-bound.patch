@@ -1,0 +1,32 @@
+--- a/trunk/linux-4.4.x/drivers/net/wireless/mediatek/mt7615/embedded/ap/ap_assoc.c
++++ b/trunk/linux-4.4.x/drivers/net/wireless/mediatek/mt7615/embedded/ap/ap_assoc.c
+@@ -1212,10 +1212,25 @@
+ #if defined(CONFIG_OWE_SUPPORT)  || defined(HOSTAPD_OWE_SUPPORT)
+ 			{
+ 				UCHAR *ext_ie_length = (UCHAR *)eid_ptr + 1;
+-				os_zero_mem(ie_lists->ecdh_ie.public_key, *ext_ie_length-3);
+-				ie_lists->ecdh_ie.ext_ie_id = IE_WLAN_EXTENSION;
+-				ie_lists->ecdh_ie.length = eid_ptr->Len;
+-				NdisMoveMemory(&ie_lists->ecdh_ie.ext_id_ecdh, eid_ptr->Octet, eid_ptr->Len);
++
++				/* F126-1: *ext_ie_length 即 eid_ptr->Len（UCHAR）。原实现两处越界：
++				 * ① os_zero_mem 第三参类型是 ULONG，Len<3 时 `Len-3` 为负 →
++				 *    提升成 ~4 GB ⇒ 立即崩溃；
++				 * ② NdisMoveMemory 从 ext_id_ecdh（偏移 2）起写 Len 字节，而
++				 *    EXT_ECDH_PARAMETER_IE 实测 133 B ⇒ Len>131 时越界 124 B。
++				 * 两者均由未认证单帧（Extension EID + ECDH）触发，故入口卡死。 */
++				if ((eid_ptr->Len >= 3) &&
++				    (eid_ptr->Len <= (sizeof(ie_lists->ecdh_ie) - 2))) {
++					os_zero_mem(ie_lists->ecdh_ie.public_key, *ext_ie_length-3);
++					ie_lists->ecdh_ie.ext_ie_id = IE_WLAN_EXTENSION;
++					ie_lists->ecdh_ie.length = eid_ptr->Len;
++					NdisMoveMemory(&ie_lists->ecdh_ie.ext_id_ecdh, eid_ptr->Octet,
++						       eid_ptr->Len);
++				} else {
++					MTWF_LOG(DBG_CAT_AP, DBG_SUBCAT_ALL, DBG_LVL_WARN,
++						 ("%s(): drop malformed ECDH IE, Len=%d\n",
++						  __func__, (int)eid_ptr->Len));
++				}
+ 			}
+ #endif /*CONFIG_OWE_SUPPORT*/
+ 				break;
