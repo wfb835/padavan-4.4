@@ -1,0 +1,14 @@
+--- a/trunk/user/www/n56u_ribbon_fixed/state.js
++++ b/trunk/user/www/n56u_ribbon_fixed/state.js
+@@ -174,7 +174,10 @@
+ 
+ 	$j("#la_info").html('<span class="label label-'+getLALabelStatus(arrLA[0])+'">'+arrLA[0]+'</span>&nbsp;<span class="label label-'+getLALabelStatus(arrLA[1])+'">'+arrLA[1]+'</span>&nbsp;<span class="label label-'+getLALabelStatus(arrLA[2])+'">'+arrLA[2]+'</span>');
+ 	$j("#cpu_info").html(cpu_now.busy + '%');
+-	$j("#mem_info").html("Free " + bytesToSize(sysinfo.ram.free*1024, 2) + " / Avail " + bytesToSize(sysinfo.ram.available*1024, 2) + " / " + bytesToSize(sysinfo.ram.total*1024, 2));
++	var memF = bytesToSize(sysinfo.ram.free*1024, 2);
++	var memA = bytesToSize(sysinfo.ram.available*1024, 2);
++	var memT = bytesToSize(sysinfo.ram.total*1024, 2);
++	$j("#mem_info").html('<span title="Free ' + memF + ' / Avail ' + memA + ' / Total ' + memT + '" style="white-space:nowrap">' + memF + ' / ' + memA + ' / ' + memT + '</span>');
+ 	$j("#uptime_info").html(sysinfo.uptime.days + "<#Day#>".substring(0,1) + " " + h+"<#Hour#>".substring(0,1) + " " + m+"<#Minute#>".substring(0,1));
+ 
+ 	$j("#cpu_usage tr:nth-child(1) td:first").html('busy: '+cpu_now.busy+'%');
