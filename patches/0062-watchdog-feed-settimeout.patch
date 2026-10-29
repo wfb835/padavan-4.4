@@ -1,0 +1,25 @@
+--- a/trunk/user/rc/watchdog.c
++++ b/trunk/user/rc/watchdog.c
+@@ -125,14 +125,18 @@
+ hw_wdt_feed(void)
+ {
+ 	int rc;
++	int t = HW_WDT_TIMEOUT;
+ 
+ 	if (hw_wdt_fd < 0)
+ 		return;
+ 
+-	/* 0055 diagnostics: count every feed outcome.
+-	 * feed ok 持续增长仍 60 s 复位 ⇒ 用户态链路通、硬件未重载（落 0056 读寄存器）；
+-	 * feed fail（errno=16）⇒ /dev/watchdog 被先占（修先占者，即 R-196-3）。 */
+-	rc = ioctl(hw_wdt_fd, WDIOC_KEEPALIVE, 0);
++	/* 0062 fix (217 §2.3 修法1): feed 改用 SETTIMEOUT 替代 KEEPALIVE。
++	 * KEEPALIVE 只置 TMRSTAT.RESTART（候选 A：在本硅上不生效 ⇒ 212/222 轮
++	 * 两次 60 s 复位循环）；SETTIMEOUT 明确重写 TMR1LOAD 并 ping，
++	 * 行为可读回验证（arm 处 hw_wdt_open 已用同一原语）。
++	 * 0055 判读链保留：feed ok 持续增长仍 60 s 复位 ⇒ 链路通但硬件未重载
++	 *（写进去也不生效，问题落在驱动/硅）；feed fail ⇒ 用户态链路问题。 */
++	rc = ioctl(hw_wdt_fd, WDIOC_SETTIMEOUT, &t);
+ 	if (rc < 0) {
+ 		hw_wdt_feed_fail++;
+ 		hw_wdt_feed_last_errno = errno;
