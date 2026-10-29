@@ -38,9 +38,9 @@
 #   1) .github/workflows/build-k2p.yml            ← 本文件
 #   2) configs/K2P-final2.config                  ← 05_固件构建/K2P-final2.config
 #      （或放到 trunk/configs/templates/K2P-final2.config；两者任一即可，脚本会自动找/复制）
-#   3) patches/0003 ~ 0059（主链 **51 个补丁**，缺任一个都会在 §Apply v109 patches 步被 ::error:: 拦下；
+#   3) patches/0003 ~ 0061（主链 **53 个补丁**，缺任一个都会在 §Apply v109 patches 步被 ::error:: 拦下；
 #      0055 是 0001 的诊断增强，跟随 WDT 条件步，不进本列表）
-#      上传用脚本：04_工具脚本/r109h_gh_cloud_build.py（UPLOADS 已列全 55 条；第 208 轮加 0047/0048，第 210 轮加 0049/0050，第 219 轮加 0053/0054，第 220 轮加 0055–0059）
+#      上传用脚本：04_工具脚本/r109h_gh_cloud_build.py（UPLOADS 已列全 57 条；第 208 轮加 0047/0048，第 210 轮加 0049/0050，第 219 轮加 0053/0054，第 220 轮加 0055–0059，第 221 轮加 0060/0061）
 #   （若 with_wdt_patch=yes，还需 patches/0001-rc-watchdog-feed-hw-wdt.patch）
 #
 # 触发：仓库页 → Actions → 左侧 "Build K2P Padavan (final)" → Run workflow
@@ -243,7 +243,7 @@ jobs:
       #  0008 删 VPN 三页 + VPN 下拉项（★ 真路径 www/n56u_ribbon_fixed/device-map/internet.asp，非 www 根）
       #       + www/Makefile 加删除行 —— 第 110 轮「去无效入口」
       # ★ 2026-10-16：apply_v109_patches=no ⇒ 只 dry-run 校验、不改源码树（回退到旧配置时用）
-      - name: Apply patches 0003 ~ 0059 (trim + frp + ttyd + M9 + libs + openssl + P1 + auth + WNM/raeth/staticmac + TX timeout + Andes seq0 + UI mem + multi-client login + OWE/ECDH bound + wdt-diag/F1/M6/stat)
+      - name: Apply patches 0003 ~ 0061 (trim + frp + ttyd + M9 + libs + openssl + P1 + auth + WNM/raeth/staticmac + TX timeout + Andes seq0 + UI mem + multi-client login + OWE/ECDH bound + wdt-diag/F1/M6/stat + esw-port-bound/LAN-IP-NUL)
         run: |
           set -e
           FAILED=0
@@ -299,7 +299,9 @@ jobs:
                    patches/0056-raeth-housekeeping-page-lock.patch \
                    patches/0057-raeth-housekeeping-budget-cap64.patch \
                    patches/0058-mt7615-e2p-efuse-m6-depth.patch \
-                   patches/0059-ap-cfg-stat-zero-result.patch ; do
+                   patches/0059-ap-cfg-stat-zero-result.patch \
+                   patches/0060-raeth-esw-rate-port-bound.patch \
+                   patches/0061-raeth-lan-ip-nul-term.patch ; do
             if [ ! -f "$P" ]; then echo "::error::patch not found: $P"; exit 1; fi
             echo "================ $P ================"
             patch -p1 --dry-run < "$P"
@@ -515,13 +517,21 @@ jobs:
               fail "www/Makefile 缺 VPN 页删除行（patches/0008 未生效）"
             fi
           fi
-          echo "===== verify: 第 220 轮（0056 F1-A / 0057 F1-C / 0058 M6 纵深 / 0059 stat 清零）====="
+          echo "===== verify: 第 220–221 轮（0056 F1-A / 0057 F1-C / 0058 M6 / 0059 stat / 0060 port 上界 / 0061 NUL）====="
           check_grep "trunk/linux-4.4.x/drivers/net/ethernet/raeth/raether_pdma.c" "F1-A: housekeeping shares" "0056 housekeeping 已纳入 page_lock"
           check_grep "trunk/linux-4.4.x/drivers/net/ethernet/raeth/raether_pdma.c" "spin_unlock(&ei_local->page_lock)" "0056 housekeeping unlock 在位"
           check_grep "trunk/linux-4.4.x/drivers/net/ethernet/raeth/raether_pdma.c" "if (budget > 64)" "0057 housekeeping budget 已 cap 64"
           check_grep "trunk/linux-4.4.x/drivers/net/wireless/mediatek/mt7615/embedded/ap/ap_cfg.c" "M6-A fix: validate BEFORE the copy" "0058 E2P 先检查后拷贝"
           check_grep "trunk/linux-4.4.x/drivers/net/wireless/mediatek/mt7615/embedded/common/ee_efuse.c" "M6-D fix: src is only 128 bytes" "0058 efuseDump 文件名已 cap 128"
           check_grep "trunk/linux-4.4.x/drivers/net/wireless/mediatek/mt7615/embedded/ap/ap_cfg.c" "os_zero_mem(&rTxStatResult, sizeof(rTxStatResult))" "0059 stat 结果体已清零"
+          echo "===== verify: 第 221 轮（0060 esw port 上界 / 0061 LAN IP NUL）====="
+          # ★ 断言锚代码本体（221 轮元验证：锚注释时逻辑弱化仍 PASS）；★ BRE 语义：
+          #   \( \) 是分组 ⇒ 字面括号必须裸写 ( )；\{ 是 interval 开始符 ⇒ 禁用（Unmatched \{ 会炸 CI）
+          check_grep "trunk/linux-4.4.x/drivers/net/ethernet/raeth/raether.c" "if (ratelimit\.port > 6)" "0060 INGRESS port 上界在位"
+          check_grep "trunk/linux-4.4.x/drivers/net/ethernet/raeth/raether.c" "offset = 0x1040 + (0x100 \* ratelimit\.port);" "0060 EGRESS 偏移式在位"
+          check_grep "trunk/linux-4.4.x/drivers/net/ethernet/raeth/raether.c" "ip_tmp\[IP4_ADDR_LEN - 1\]" "0061 ioctl 路径 NUL 补齐"
+          check_grep "trunk/linux-4.4.x/drivers/net/ethernet/raeth/raether.c" "if (result)" "0061 copy_from_user 返回检查（P-c）"
+          check_grep "trunk/linux-4.4.x/drivers/net/ethernet/raeth/ra_dbg_proc.c" "count : IP4_ADDR_LEN - 1" "0061 procfs 路径 NUL 补齐"
           [ "$FAILED" = "0" ] || { echo "::error::补丁断言未全部通过（见上文 ::error:: 行）"; exit 1; }
 
       # ---- ★★ 供应链加固：预取 + 校验 frp tarball（第 110 轮·前置新增；用户 2026-10-16 决定「一起并入本轮」）----
