@@ -1,0 +1,28 @@
+--- a/trunk/linux-4.4.x/drivers/net/wireless/mediatek/mt7615/embedded/security/owe.c
++++ b/trunk/linux-4.4.x/drivers/net/wireless/mediatek/mt7615/embedded/security/owe.c
+@@ -519,14 +519,22 @@
+ 	BOOLEAN has_band_ch_info = FALSE;
+ 	UCHAR local_ssid_len = *(owe_vendor_ie + MAC_ADDR_LEN);
+ 	UCHAR ssid_field_len = sizeof(UCHAR);
+-	UCHAR at_least_length = local_ssid_len + MAC_ADDR_LEN + ssid_field_len;
++	UINT16 at_least_length = local_ssid_len + MAC_ADDR_LEN + ssid_field_len;
+ 	UCHAR *pos = owe_vendor_ie;
+ 
+ 	/*Sanity check length information*/
+-	if (owe_vendor_ie_len < (local_ssid_len + MAC_ADDR_LEN)) {
++	/* F85-2: local_ssid_len 直接取自 IE 第 6 字节，是 UCHAR（上界 255），
++	 * 而调用者的 pair_ssid[] 只有 MAX_LEN_OF_SSID=32 字节。原守卫仅校验
++	 * IE 总长、不校验 SSID 长度 ⇒ 单帧即可向 pair_ssid 写 245 B（溢出 213 B）。
++	 * 另：band/ch 分支要连续读 2 B（band + ch），故下界取 at_least_length+2，
++	 * 原 `> at_least_length` 在 len==local+8 时会越界读 1 B。 */
++	if (local_ssid_len > MAX_LEN_OF_SSID) {
+ 		ret = FALSE;
+ 		goto end;
+-	} else if (owe_vendor_ie_len > at_least_length)
++	} else if (owe_vendor_ie_len < (local_ssid_len + MAC_ADDR_LEN)) {
++		ret = FALSE;
++		goto end;
++	} else if (owe_vendor_ie_len >= (at_least_length + 2))
+ 		has_band_ch_info = TRUE;/*remain length */
+ 
+ 	NdisMoveMemory(pair_bssid, pos, MAC_ADDR_LEN);
