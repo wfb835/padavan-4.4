@@ -1,0 +1,35 @@
+--- a/trunk/linux-4.4.x/drivers/net/ethernet/raeth/raether.c
++++ b/trunk/linux-4.4.x/drivers/net/ethernet/raeth/raether.c
+@@ -2865,6 +2865,19 @@
+ 
+ 	case RAETH_SET_LAN_IP:
+ 		result = copy_from_user(ip_tmp, ifr->ifr_data, IP4_ADDR_LEN);
++		if (result) {
++			/* R-221-2 fix (P-c, 第204轮已指出、B 未提): copy 失败时
++			 * ip_tmp 是未初始化栈数据，strncpy+pr_info("%s") 照样读栈。
++			 * 持锁区内必须 break，return 会漏解锁 page_lock ⇒ 死锁。 */
++			ret = -EFAULT;
++			break;
++		}
++		/* R-221-2 fix: 用户数据不保证 NUL ⇒ strncpy 写满不加终止符
++		 * ⇒ 后续 %s / fe_set_*_my_ip() 越界读。count=16 时牺牲尾字节
++		 * 换终止保证（16 字节无 NUL 的"IP"本就不是合法字符串）。
++		 * strncpy 零填充语义保证 lan_ip4_addr 其余字节清零（0041 意图的
++		 * 正确重实现：0041 因裸 NUL 格式坏在第 204 轮被否决）。 */
++		ip_tmp[IP4_ADDR_LEN - 1] = '\0';
+ 		strncpy(ei_local->lan_ip4_addr, ip_tmp, IP4_ADDR_LEN);
+ 		pr_info("RAETH_SET_LAN_IP: %s\n", ei_local->lan_ip4_addr);
+ 
+--- a/trunk/linux-4.4.x/drivers/net/ethernet/raeth/ra_dbg_proc.c
++++ b/trunk/linux-4.4.x/drivers/net/ethernet/raeth/ra_dbg_proc.c
+@@ -1742,6 +1742,10 @@
+ 	if (copy_from_user(ip_tmp, buffer, count))
+ 		return -EFAULT;
+ 
++	/* R-221-2 fix: 同 ioctl 路径 —— 补 NUL 终止（count≤16，
++	 * count<16 截断在 count，count=16 牺牲尾字节）。 */
++	ip_tmp[(count < IP4_ADDR_LEN) ? count : IP4_ADDR_LEN - 1] = '\0';
++
+ 	strncpy(ei_local->lan_ip4_addr, ip_tmp, count);
+ 
+ 	pr_info("[%s]LAN IP = %s\n", __func__, ei_local->lan_ip4_addr);
