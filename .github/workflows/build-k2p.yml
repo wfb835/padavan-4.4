@@ -55,9 +55,9 @@ on:
         required: false
         default: 'K2P-final2'
       with_wdt_patch:
-        description: '打 WDT 喂狗补丁 0001？（yes / no）—— ★ 2026-10-26 用户拍板：默认 yes'
+        description: '打 WDT 喂狗补丁 0001？（yes / no）—— ★ 2026-10-29 第 219 轮：默认改 no（0001 一打即 60 s 硬复位，见第 212 轮）'
         required: false
-        default: 'yes'
+        default: 'no'
       # ★ 2026-10-16 新增：让"回退路径"真正可执行（原版把 happy path 硬写成断言 ⇒ R1/R2/R3 全被 exit 1 拦下）
       strict_assert:
         description: '断言是否致命（yes / no）—— 设 no：语义断言降级为 warning（改 config 重跑时用）'
@@ -277,7 +277,9 @@ jobs:
                    patches/0049-web-ui-mem-available.patch \
                    patches/0050-httpd-multi-client-login.patch \
                    patches/0051-web-ui-mem-info-nowrap.patch \
-                   patches/0052-web-ui-mem-detail-hide-button.patch ; do
+                   patches/0052-web-ui-mem-detail-hide-button.patch \
+                   patches/0053-owe-pair-ssid-len-bound.patch \
+                   patches/0054-ap-assoc-ecdh-ie-bound.patch ; do
             if [ ! -f "$P" ]; then echo "::error::patch not found: $P"; exit 1; fi
             echo "================ $P ================"
             patch -p1 --dry-run < "$P"
@@ -316,6 +318,23 @@ jobs:
           check_grep "trunk/user/www/n56u_ribbon_fixed/state.js" "hide_adv_info" "0052 hide 按钮模板仍在"
           if grep -q 'tr:nth-child(1) td:last' trunk/user/www/n56u_ribbon_fixed/state.js; then
             fail "0052 tr1 td:last 不得被覆盖（否则详情表丢失 hide）"
+          fi
+          echo "===== verify: 第 219 轮 P1 内存破坏（0053 / 0054）====="
+          # 0053：local_ssid_len 取自 IE 第 6 字节（UCHAR），不校验上界可直接溢出 pair_ssid[32] 213 B
+          check_grep "$M/security/owe.c" "local_ssid_len > MAX_LEN_OF_SSID" "0053 OWE pair_ssid 已有 SSID 长度上界"
+          if grep -q "UCHAR at_least_length" "$M/security/owe.c" ; then
+            fail "0053 at_least_length 仍是 UCHAR（local_ssid_len+7 会回绕）"
+          else
+            echo "  OK   at_least_length 已改 UINT16"
+          fi
+          # 0054：Len<3 使 os_zero_mem 长度负溢出为 ~4 GB；Len>131 越界 124 B
+          check_grep "$M/ap/ap_assoc.c" "sizeof(ie_lists->ecdh_ie) - 2" "0054 ECDH IE 已按结构体尺寸钳制"
+          if grep -q "os_zero_mem(ie_lists->ecdh_ie.public_key, \*ext_ie_length-3);" "$M/ap/ap_assoc.c" ; then
+            if grep -q "eid_ptr->Len >= 3" "$M/ap/ap_assoc.c" ; then
+              echo "  OK   ECDH os_zero_mem 已受 Len>=3 保护"
+            else
+              fail "0054 ECDH os_zero_mem 仍无 Len>=3 守卫（可致 ~4 GB memset）"
+            fi
           fi
           echo "===== verify: 第 205 轮稳定性补丁（0036/0042/0043）====="
           check_grep "trunk/linux-4.4.x/drivers/net/wireless/mediatek/mt7615/os/linux/ap_ioctl.c" "cmd <= SIOCIWLASTPRIV" "0036 mt7615 私有 ioctl 已加范围权限门"
