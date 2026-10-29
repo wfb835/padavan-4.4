@@ -554,8 +554,15 @@ jobs:
       - name: Cache toolchain
         uses: actions/cache@v4
         with:
-          path: toolchain-mipsel/toolchain-4.4.x
-          key: tc-4.4.x-${{ runner.os }}-v1
+          # 第213轮修复：原先只缓存解压后的 toolchain-4.4.x/，命中缓存时
+          # dl_toolchain.sh 会「目录已存在 ⇒ 跳过下载」⇒ Prepare toolchain 步里
+          # mipsel-linux-uclibc.tar.xz 不存在 ⇒ pin 校验直接 ::error:: 退出
+          # （run 40832180756 实测：1 分钟挂掉，连编译都没进）。
+          # 现在把 tarball 一起缓存；key 升 v2 以强制丢弃旧的不完整缓存。
+          path: |
+            toolchain-mipsel/toolchain-4.4.x
+            toolchain-mipsel/mipsel-linux-uclibc.tar.xz
+          key: tc-4.4.x-${{ runner.os }}-v2
 
       # ---- toolchain：预编译 tar.xz，命中缓存则秒过 ----
       #   ★ R-13 fix（第 182 轮）：release 无官方 digest，且 dl_toolchain.sh 的 curl 不校验
@@ -577,8 +584,15 @@ jobs:
             x86_64)  F=mipsel-linux-uclibc.tar.xz ;;
             *) echo "::error::unknown ARCH=$ARCH"; exit 1 ;;
           esac
+          # 兜底（第213轮）：缓存命中时 dl_toolchain.sh 因「目录已存在」直接 exit，
+          # tarball 并不在场 ⇒ 原来的「tarball 必须在」判据必然误杀（run 40832180756）。
+          # 这里显式补下载，保证「每个产物都经过 pin 校验」这条不变量始终成立。
           if [ ! -f "$F" ]; then
-            echo "::error::$F 不存在（dl_toolchain.sh 未下载？）"; exit 1
+            echo "  $F 缺失（缓存命中/脚本跳过）→ 显式补下载以完成 pin 校验"
+            curl -fL -o "$F" "https://github.com/hanwckf/padavan-toolchain/releases/download/linux-4.4-v1.0/$F"
+          fi
+          if [ ! -f "$F" ]; then
+            echo "::error::$F 仍不存在（补下载失败）"; exit 1
           fi
           echo "  size = $(wc -c < "$F") bytes"
           GOT_MD5=$(md5sum "$F" | awk '{print $1}')
