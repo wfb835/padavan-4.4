@@ -38,8 +38,8 @@
 #   1) .github/workflows/build-k2p.yml            ← 本文件
 #   2) configs/K2P-final2.config                  ← 05_固件构建/K2P-final2.config
 #      （或放到 trunk/configs/templates/K2P-final2.config；两者任一即可，脚本会自动找/复制）
-#   3) patches/0003 ~ 0050（**43 个补丁**，缺任一个都会在 §Apply v109 patches 步被 ::error:: 拦下）
-#      上传用脚本：04_工具脚本/r109h_gh_cloud_build.py（UPLOADS 已列全 46 条；第 208 轮加 0047/0048，第 210 轮加 0049/0050）
+#   3) patches/0003 ~ 0054（**47 个补丁**，缺任一个都会在 §Apply v109 patches 步被 ::error:: 拦下）
+#      上传用脚本：04_工具脚本/r109h_gh_cloud_build.py（UPLOADS 已列全 50 条；第 208 轮加 0047/0048，第 210 轮加 0049/0050，第 219 轮加 0053/0054）
 #   （若 with_wdt_patch=yes，还需 patches/0001-rc-watchdog-feed-hw-wdt.patch）
 #
 # 触发：仓库页 → Actions → 左侧 "Build K2P Padavan (final)" → Run workflow
@@ -227,7 +227,7 @@ jobs:
       #  0008 删 VPN 三页 + VPN 下拉项（★ 真路径 www/n56u_ribbon_fixed/device-map/internet.asp，非 www 根）
       #       + www/Makefile 加删除行 —— 第 110 轮「去无效入口」
       # ★ 2026-10-16：apply_v109_patches=no ⇒ 只 dry-run 校验、不改源码树（回退到旧配置时用）
-      - name: Apply patches 0003 ~ 0050 (trim + frp + ttyd + M9 + libs + openssl + P1 + auth + WNM/raeth/staticmac + TX timeout + Andes seq0 + UI mem + multi-client login)
+      - name: Apply patches 0003 ~ 0054 (trim + frp + ttyd + M9 + libs + openssl + P1 + auth + WNM/raeth/staticmac + TX timeout + Andes seq0 + UI mem + multi-client login + OWE/ECDH bound)
         run: |
           set -e
           FAILED=0
