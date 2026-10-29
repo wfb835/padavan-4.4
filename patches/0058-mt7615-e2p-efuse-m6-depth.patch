@@ -1,0 +1,40 @@
+--- a/trunk/linux-4.4.x/drivers/net/wireless/mediatek/mt7615/embedded/ap/ap_cfg.c
++++ b/trunk/linux-4.4.x/drivers/net/wireless/mediatek/mt7615/embedded/ap/ap_cfg.c
+@@ -11855,6 +11855,14 @@
+ 				}
+ 			} else {
+ 				/*Write */
++				/* M6-A fix: validate BEFORE the copy. temp2[16] used to
++				 * receive strlen(value) (up to 255 bytes) plus a NUL
++				 * written one past the end; the old "Sanity check" ran
++				 * after the copy. Entry gate 0036 already requires
++				 * CAP_NET_ADMIN; this closes the copy itself. */
++				if (strlen(value) > 8)
++					break;
++
+ 				NdisMoveMemory(&temp2, value, strlen(value));
+ 				temp2[strlen(value)] = '\0';
+ 
+--- a/trunk/linux-4.4.x/drivers/net/wireless/mediatek/mt7615/embedded/common/ee_efuse.c
++++ b/trunk/linux-4.4.x/drivers/net/wireless/mediatek/mt7615/embedded/common/ee_efuse.c
+@@ -859,9 +859,17 @@
+ 	PDATA = (USHORT *)(buffer + MAX_EEPROM_BIN_FILE_SIZE);	/* kmalloc(sizeof(USHORT)*8,MEM_ALLOC_FLAG);*/
+ 	ptr = buffer;
+ 
+-	if (strlen(arg) > 0)
+-		NdisMoveMemory(src, arg, strlen(arg));
+-	else
++	if (strlen(arg) > 0) {
++		/* M6-D fix: src is only 128 bytes; an over-long ioctl argument
++		 * overflowed into `buffer` (the eFuse image area) and could
++		 * corrupt calibration on the next write. Cap the filename;
++		 * NdisZeroMemory(memPtr, memSize) already guarantees a NUL after
++		 * 128 bytes, so a full-length name stays terminated. */
++		retval = strlen(arg);
++		if (retval > 128)
++			retval = 128;
++		NdisMoveMemory(src, arg, retval);
++	} else
+ 		NdisMoveMemory(src, EEPROM_DEFULT_BIN_FILE, strlen(EEPROM_DEFULT_BIN_FILE));
+ 
+ 	MTWF_LOG(DBG_CAT_HW, DBG_SUBCAT_ALL, DBG_LVL_OFF, ("FileName=%s\n", src));
