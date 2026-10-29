@@ -1,0 +1,27 @@
+--- a/trunk/linux-4.4.x/drivers/net/ethernet/raeth/raether_pdma.c
++++ b/trunk/linux-4.4.x/drivers/net/ethernet/raeth/raether_pdma.c
+@@ -750,6 +750,15 @@
+ 	unsigned long skb_free_idx;
+ 	int tx_processed = 0;
+ 
++	/* F1-A: housekeeping shares skb_free[]/free_idx/tx_ring_full with
++	 * ei_pdma_start_xmit(), which touches them under page_lock (irqsave
++	 * since 0042). Unlocked access here lost updates (tx_ring_full flag and
++	 * in-flight skb_free slots) => skb leak under load. Both call sites run
++	 * from hardirq already holding irq_lock, so a plain spin_lock() is
++	 * enough; lock order irq_lock -> page_lock has no reverse path
++	 * (gsw_interrupt takes only page_lock). */
++	spin_lock(&ei_local->page_lock);
++
+ 	tx_desc = ei_local->tx_ring0;
+ 	skb_free_idx = ei_local->free_idx;
+ 
+@@ -769,6 +778,8 @@
+ 	ei_local->tx_ring_full = 0;
+ 	ei_local->free_idx = skb_free_idx;
+ 
++	spin_unlock(&ei_local->page_lock);
++
+ 	return tx_processed;
+ }
+ 
