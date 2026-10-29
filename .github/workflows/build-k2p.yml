@@ -39,8 +39,8 @@
 #   2) configs/K2P-final2.config                  ← 05_固件构建/K2P-final2.config
 #      （或放到 trunk/configs/templates/K2P-final2.config；两者任一即可，脚本会自动找/复制）
 #   3) patches/0003 ~ 0061（主链 **53 个补丁**，缺任一个都会在 §Apply v109 patches 步被 ::error:: 拦下；
-#      0055 是 0001 的诊断增强，跟随 WDT 条件步，不进本列表）
-#      上传用脚本：04_工具脚本/r109h_gh_cloud_build.py（UPLOADS 已列全 57 条；第 208 轮加 0047/0048，第 210 轮加 0049/0050，第 219 轮加 0053/0054，第 220 轮加 0055–0059，第 221 轮加 0060/0061）
+#      0055/0062 是 0001 的诊断增强（0055 计数）与 feed 原语修复（0062 SETTIMEOUT），跟随 WDT 条件步，不进主列表）
+#      上传用脚本：04_工具脚本/r109h_gh_cloud_build.py（UPLOADS 已列全 57 条；第 208 轮加 0047/0048，第 210 轮加 0049/0050，第 219 轮加 0053/0054，第 220 轮加 0055–0059，第 221 轮加 0060/0061，第 223 轮加 0062（WDT 条件件））
 #   （若 with_wdt_patch=yes，还需 patches/0001-rc-watchdog-feed-hw-wdt.patch）
 #
 # 触发：仓库页 → Actions → 左侧 "Build K2P Padavan (final)" → Run workflow
@@ -233,6 +233,21 @@ jobs:
             exit 1
           fi
           echo "  OK   0055 已生效（feed ok/fail 计数 + 60s 一条日志）"
+          # ---- 0062（第 223 轮）：feed 改用 SETTIMEOUT 替代 KEEPALIVE（217 §2.3 修法1） ----
+          P3="patches/0062-watchdog-feed-settimeout.patch"
+          if [ ! -f "$P3" ]; then
+            echo "::error::patch not found: upload $P3"
+            exit 1
+          fi
+          echo "== dry run (0062) =="
+          patch -p1 --dry-run < "$P3"
+          echo "== apply (0062) =="
+          patch -p1 < "$P3"
+          if ! grep -q "rc = ioctl(hw_wdt_fd, WDIOC_SETTIMEOUT, &t);" trunk/user/rc/watchdog.c; then
+            echo "::error::0062 未生效：watchdog.c 缺 0062 标记"
+            exit 1
+          fi
+          echo "  OK   0062 已生效（feed = SETTIMEOUT，替代 KEEPALIVE）"
 
       # ---- ★ 第 109 轮：裁剪补丁 + frp 版本对齐（默认应用；含 0003——它此前从未被应用）----
       #  0003 miniupnpd portinuse/leasefile 修复（第103轮移植成果，此前一直被漏掉）
