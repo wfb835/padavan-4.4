@@ -1,0 +1,17 @@
+--- a/trunk/linux-4.4.x/drivers/net/ethernet/raeth/raether_pdma.c
++++ b/trunk/linux-4.4.x/drivers/net/ethernet/raeth/raether_pdma.c
+@@ -753,6 +753,14 @@
+ 	tx_desc = ei_local->tx_ring0;
+ 	skb_free_idx = ei_local->free_idx;
+ 
++	/* F1-C: cap the per-IRQ free budget. num_tx_max_process == num_tx_desc
++	 * (2048 on MT7621), so one TX interrupt could loop over the whole ring
++	 * with local IRQs disabled (hundreds of iterations under load).
++	 * 64 bounds the worst-case latency; leftover DDONE descriptors keep the
++	 * TX interrupt re-arming, so nothing leaks. */
++	if (budget > 64)
++		budget = 64;
++
+ 	while (budget &&
+ 	       (ei_local->skb_free[skb_free_idx] != 0) &&
+ 	       (tx_desc[skb_free_idx].txd_info2.DDONE_bit == 1)) {
