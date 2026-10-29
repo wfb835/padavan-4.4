@@ -275,7 +275,8 @@ jobs:
                    patches/0047-raeth-pdma-tx-done-timeout.patch \
                    patches/0048-andes-seq0-timeout-no-assert.patch \
                    patches/0049-web-ui-mem-available.patch \
-                   patches/0050-httpd-multi-client-login.patch ; do
+                   patches/0050-httpd-multi-client-login.patch \
+                   patches/0051-web-ui-mem-info-nowrap.patch ; do
             if [ ! -f "$P" ]; then echo "::error::patch not found: $P"; exit 1; fi
             echo "================ $P ================"
             patch -p1 --dry-run < "$P"
