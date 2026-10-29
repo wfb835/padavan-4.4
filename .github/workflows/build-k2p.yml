@@ -38,8 +38,9 @@
 #   1) .github/workflows/build-k2p.yml            ← 本文件
 #   2) configs/K2P-final2.config                  ← 05_固件构建/K2P-final2.config
 #      （或放到 trunk/configs/templates/K2P-final2.config；两者任一即可，脚本会自动找/复制）
-#   3) patches/0003 ~ 0054（**47 个补丁**，缺任一个都会在 §Apply v109 patches 步被 ::error:: 拦下）
-#      上传用脚本：04_工具脚本/r109h_gh_cloud_build.py（UPLOADS 已列全 50 条；第 208 轮加 0047/0048，第 210 轮加 0049/0050，第 219 轮加 0053/0054）
+#   3) patches/0003 ~ 0059（主链 **51 个补丁**，缺任一个都会在 §Apply v109 patches 步被 ::error:: 拦下；
+#      0055 是 0001 的诊断增强，跟随 WDT 条件步，不进本列表）
+#      上传用脚本：04_工具脚本/r109h_gh_cloud_build.py（UPLOADS 已列全 55 条；第 208 轮加 0047/0048，第 210 轮加 0049/0050，第 219 轮加 0053/0054，第 220 轮加 0055–0059）
 #   （若 with_wdt_patch=yes，还需 patches/0001-rc-watchdog-feed-hw-wdt.patch）
 #
 # 触发：仓库页 → Actions → 左侧 "Build K2P Padavan (final)" → Run workflow
@@ -217,6 +218,21 @@ jobs:
           fi
           echo "  OK   0001 已生效（hw_wdt_feed + /dev/watchdog）"
           grep -n "hw_wdt_feed" trunk/user/rc/watchdog.c | head
+          # ---- 0055（第 220 轮）：0001 诊断增强，依赖 0001，仅随本开关打 ----
+          P2="patches/0055-rc-watchdog-hw-wdt-diagnostics.patch"
+          if [ ! -f "$P2" ]; then
+            echo "::error::patch not found: upload $P2"
+            exit 1
+          fi
+          echo "== dry run (0055) =="
+          patch -p1 --dry-run < "$P2"
+          echo "== apply (0055) =="
+          patch -p1 < "$P2"
+          if ! grep -q "hw_wdt_feed_ok" trunk/user/rc/watchdog.c; then
+            echo "::error::0055 未生效：watchdog.c 缺 hw_wdt_feed_ok"
+            exit 1
+          fi
+          echo "  OK   0055 已生效（feed ok/fail 计数 + 60s 一条日志）"
 
       # ---- ★ 第 109 轮：裁剪补丁 + frp 版本对齐（默认应用；含 0003——它此前从未被应用）----
       #  0003 miniupnpd portinuse/leasefile 修复（第103轮移植成果，此前一直被漏掉）
@@ -227,7 +243,7 @@ jobs:
       #  0008 删 VPN 三页 + VPN 下拉项（★ 真路径 www/n56u_ribbon_fixed/device-map/internet.asp，非 www 根）
       #       + www/Makefile 加删除行 —— 第 110 轮「去无效入口」
       # ★ 2026-10-16：apply_v109_patches=no ⇒ 只 dry-run 校验、不改源码树（回退到旧配置时用）
-      - name: Apply patches 0003 ~ 0054 (trim + frp + ttyd + M9 + libs + openssl + P1 + auth + WNM/raeth/staticmac + TX timeout + Andes seq0 + UI mem + multi-client login + OWE/ECDH bound)
+      - name: Apply patches 0003 ~ 0059 (trim + frp + ttyd + M9 + libs + openssl + P1 + auth + WNM/raeth/staticmac + TX timeout + Andes seq0 + UI mem + multi-client login + OWE/ECDH bound + wdt-diag/F1/M6/stat)
         run: |
           set -e
           FAILED=0
@@ -279,7 +295,11 @@ jobs:
                    patches/0051-web-ui-mem-info-nowrap.patch \
                    patches/0052-web-ui-mem-detail-hide-button.patch \
                    patches/0053-owe-pair-ssid-len-bound.patch \
-                   patches/0054-ap-assoc-ecdh-ie-bound.patch ; do
+                   patches/0054-ap-assoc-ecdh-ie-bound.patch \
+                   patches/0056-raeth-housekeeping-page-lock.patch \
+                   patches/0057-raeth-housekeeping-budget-cap64.patch \
+                   patches/0058-mt7615-e2p-efuse-m6-depth.patch \
+                   patches/0059-ap-cfg-stat-zero-result.patch ; do
             if [ ! -f "$P" ]; then echo "::error::patch not found: $P"; exit 1; fi
             echo "================ $P ================"
             patch -p1 --dry-run < "$P"
@@ -339,10 +359,15 @@ jobs:
           echo "===== verify: 第 205 轮稳定性补丁（0036/0042/0043）====="
           check_grep "trunk/linux-4.4.x/drivers/net/wireless/mediatek/mt7615/os/linux/ap_ioctl.c" "cmd <= SIOCIWLASTPRIV" "0036 mt7615 私有 ioctl 已加范围权限门"
           check_grep "trunk/linux-4.4.x/drivers/net/ethernet/raeth/raether_pdma.c" "spin_lock_irqsave(&ei_local->page_lock, flags)" "R-200-2 xmit 已改 irqsave"
-          if grep -q "spin_lock(&ei_local->page_lock)" trunk/linux-4.4.x/drivers/net/ethernet/raeth/raether_pdma.c ; then
-            fail "R-200-2 仍存在裸 spin_lock(page_lock)"
+          # R-200-2 反向断言（第 220 轮修订）：0056 后裸 spin_lock(page_lock) 仅允许
+          # 出现在 ei_pdma_xmit_housekeeping（F1-A）内一处；xmit 必须仍用 irqsave。
+          if ! grep -q "spin_lock_irqsave(&ei_local->page_lock, flags)" trunk/linux-4.4.x/drivers/net/ethernet/raeth/raether_pdma.c ; then
+            fail "R-200-2：xmit 的 page_lock irqsave 丢失"
+          fi
+          if [ "$(grep -c 'spin_lock(&ei_local->page_lock)' trunk/linux-4.4.x/drivers/net/ethernet/raeth/raether_pdma.c)" != "1" ]; then
+            fail "R-200-2/0056：裸 spin_lock(page_lock) 数量异常（期望恰 1 次：housekeeping lock）"
           else
-            echo "  OK   裸 spin_lock(page_lock) 已清零"
+            echo "  OK   R-200-2/0056：裸锁仅剩 housekeeping 一处，xmit 仍 irqsave"
           fi
           check_grep "trunk/linux-4.4.x/drivers/net/ethernet/raeth/raether.c" "free_irq(ei_local->esw_irq, NULL)" "R-200-1 MT7621 free_irq 用 dev_id=NULL"
           echo "===== verify: 第 206 轮稳定性补丁（0044/0045/0046）====="
@@ -490,6 +515,13 @@ jobs:
               fail "www/Makefile 缺 VPN 页删除行（patches/0008 未生效）"
             fi
           fi
+          echo "===== verify: 第 220 轮（0056 F1-A / 0057 F1-C / 0058 M6 纵深 / 0059 stat 清零）====="
+          check_grep "trunk/linux-4.4.x/drivers/net/ethernet/raeth/raether_pdma.c" "F1-A: housekeeping shares" "0056 housekeeping 已纳入 page_lock"
+          check_grep "trunk/linux-4.4.x/drivers/net/ethernet/raeth/raether_pdma.c" "spin_unlock(&ei_local->page_lock)" "0056 housekeeping unlock 在位"
+          check_grep "trunk/linux-4.4.x/drivers/net/ethernet/raeth/raether_pdma.c" "if (budget > 64)" "0057 housekeeping budget 已 cap 64"
+          check_grep "trunk/linux-4.4.x/drivers/net/wireless/mediatek/mt7615/embedded/ap/ap_cfg.c" "M6-A fix: validate BEFORE the copy" "0058 E2P 先检查后拷贝"
+          check_grep "trunk/linux-4.4.x/drivers/net/wireless/mediatek/mt7615/embedded/common/ee_efuse.c" "M6-D fix: src is only 128 bytes" "0058 efuseDump 文件名已 cap 128"
+          check_grep "trunk/linux-4.4.x/drivers/net/wireless/mediatek/mt7615/embedded/ap/ap_cfg.c" "os_zero_mem(&rTxStatResult, sizeof(rTxStatResult))" "0059 stat 结果体已清零"
           [ "$FAILED" = "0" ] || { echo "::error::补丁断言未全部通过（见上文 ::error:: 行）"; exit 1; }
 
       # ---- ★★ 供应链加固：预取 + 校验 frp tarball（第 110 轮·前置新增；用户 2026-10-16 决定「一起并入本轮」）----
