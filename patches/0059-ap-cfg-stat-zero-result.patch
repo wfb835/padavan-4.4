@@ -1,0 +1,16 @@
+--- a/trunk/linux-4.4.x/drivers/net/wireless/mediatek/mt7615/embedded/ap/ap_cfg.c
++++ b/trunk/linux-4.4.x/drivers/net/wireless/mediatek/mt7615/embedded/ap/ap_cfg.c
+@@ -12029,6 +12029,13 @@
+ 		EXT_EVENT_TX_STATISTIC_RESULT_T rTxStatResult;
+ 		HTTRANSMIT_SETTING LastTxRate;
+ 
++		/* #123 fix: the result struct was handed to the MCU call
++		 * uninitialized and the return value was discarded — on a 3000 ms
++		 * MCU timeout the += below ingested stack garbage (counters
++		 * jumping / appearing to roll back). Zero it so a timeout adds 0.
++		 * (Return-value check deliberately NOT added: `isfound` in this
++		 * function belongs to a later call; reusing it would tangle logic.) */
++		os_zero_mem(&rTxStatResult, sizeof(rTxStatResult));
+ 		MtCmdGetTxStatistic(pAd, GET_TX_STAT_TOTAL_TX_CNT | GET_TX_STAT_LAST_TX_RATE, ucBand, 0, &rTxStatResult);
+ 		pAd->WlanCounters[ucBand].TransmittedFragmentCount.u.LowPart += (rTxStatResult.u4TotalTxCount -
+ 				rTxStatResult.u4TotalTxFailCount);
