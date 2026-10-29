@@ -1,0 +1,23 @@
+--- a/trunk/user/www/n56u_ribbon_fixed/state.js
++++ b/trunk/user/www/n56u_ribbon_fixed/state.js
+@@ -188,14 +188,15 @@
+ 	$j("#cpu_usage tr:nth-child(4) td:first").html('idle: '+cpu_now.idle+'%');
+ 	$j("#cpu_usage tr:nth-child(4) td:last").html('nice: '+cpu_now.nice+'%');
+ 
++	/* 第216轮：tr1 td:last 是 hide 按钮（state.js:322 的 HTML），不可覆盖；
++	 * 4 行只有 8 格，故把 swap 的 total/used 合并到一格，保住 hide 与其余 7 项。 */
+ 	$j("#mem_usage tr:nth-child(1) td:first").html('total: '+bytesToSize(sysinfo.ram.total*1024, 2));
+-	$j("#mem_usage tr:nth-child(1) td:last").html('used: '+bytesToSize(sysinfo.ram.used*1024, 2));
+ 	$j("#mem_usage tr:nth-child(2) td:first").html('free: '+bytesToSize(sysinfo.ram.free*1024, 2));
+ 	$j("#mem_usage tr:nth-child(2) td:last").html('available: '+bytesToSize(sysinfo.ram.available*1024, 2));
+-	$j("#mem_usage tr:nth-child(3) td:first").html('cached: '+bytesToSize(sysinfo.ram.cached*1024, 2));
+-	$j("#mem_usage tr:nth-child(3) td:last").html('buffers: '+bytesToSize(sysinfo.ram.buffers*1024, 2));
+-	$j("#mem_usage tr:nth-child(4) td:first").html('swap: '+bytesToSize(sysinfo.swap.total*1024, 2));
+-	$j("#mem_usage tr:nth-child(4) td:last").html('swap used: '+bytesToSize(sysinfo.swap.used*1024, 2));
++	$j("#mem_usage tr:nth-child(3) td:first").html('used: '+bytesToSize(sysinfo.ram.used*1024, 2));
++	$j("#mem_usage tr:nth-child(3) td:last").html('cached: '+bytesToSize(sysinfo.ram.cached*1024, 2));
++	$j("#mem_usage tr:nth-child(4) td:first").html('buffers: '+bytesToSize(sysinfo.ram.buffers*1024, 2));
++	$j("#mem_usage tr:nth-child(4) td:last").html('swap: '+bytesToSize(sysinfo.swap.used*1024, 2) + ' / ' + bytesToSize(sysinfo.swap.total*1024, 2));
+ 
+ 	if(parseInt(sysinfo.wifi2.state) > 0)
+ 		$j('#wifi2_b').addClass('btn-info');
