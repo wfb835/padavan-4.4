@@ -1,0 +1,63 @@
+--- a/trunk/user/networkmap/networkmap.c
++++ b/trunk/user/networkmap/networkmap.c
+@@ -389,7 +389,7 @@
+ {
+ 	FILE *fp;
+ 	NET_CLIENT *item;
+-	char buffer[256], arp_ip[16], arp_if[16];
++	char buffer[256], arp_ip[16], arp_if[16], arp_hw[20];
+ 	struct in_addr src_addr;
+ 	unsigned int arp_flags;
+ 
+@@ -400,12 +400,16 @@
+ 		
+ 		while (fgets(buffer, sizeof(buffer), fp)) {
+ 			arp_flags = 0;
+-			if (sscanf(buffer, "%15s %*s 0x%x %*s %*s %15s", arp_ip, &arp_flags, arp_if) == 3) {
++			/* 0063: 取 HW 地址（原 %*s 跳过 ⇒ 导入的条目 macval 恒为 0，永不写盘） */
++			if (sscanf(buffer, "%15s %*s 0x%x %17s %*s %15s",
++			    arp_ip, &arp_flags, arp_hw, arp_if) == 4) {
+ 				if ((arp_flags & 0x02) && strcmp(arp_if, IFNAME_BR) == 0 && inet_aton(arp_ip, &src_addr)) {
+ 					if (src_addr.s_addr != my_ipaddr.s_addr && is_same_subnet(&src_addr, &my_ipaddr, &my_ipmask)) {
+ 						item = lookup_client(src_addr.s_addr);
+-						if (item) {
+-							item->macval = 0;
++						if (item && ether_atoe(arp_hw, item->mac_addr)) {
++							/* 0063: 内核 ARP 的完成条目本身就是权威 IP↔MAC，
++							 * 直接置可见，不再强制等它回复本机。 */
++							item->macval = 1;
+ 							item->staled = 0;
+ 							item->probed = 1;
+ 							item->pending = 0;
+@@ -445,9 +449,10 @@
+ 		scan_block = 0;
+ 		arp_timeout.tv_sec = 0;
+ 		arp_timeout.tv_usec = 60000;
+-	} else {
+-		arp_proc_fetch();
+-	}
++	}
++
++	/* 0063: /24（家用最常见）原来走不到 else 分支 ⇒ 从不导入内核 ARP。 */
++	arp_proc_fetch();
+ 
+ error_exit:
+ 
+@@ -616,6 +621,17 @@
+ 				item->probed = 1;
+ 				item->pending = 0;
+ 				item->skip_ping = 254; // next ping after ~4s
++
++				/* 0063: 旁听到的 ARP 包已足以确定 IP↔MAC，直接落库；
++				 * 否则只发请求、不回复本机的终端（省电手机）永不显示。
++				 * 不做反向 DNS、不做端口扫描（两者都会阻塞 networkmap 主循环）。 */
++				if (!item->macval && memcmp(arp_ptr->source_hwaddr, item->mac_addr, 6)) {
++					memcpy(item->mac_addr, arp_ptr->source_hwaddr, 6);
++					item->macval = 1;
++					if (!item->type)
++						item->type = 6; /* 未知设备 */
++					nmap_changed = 1;
++				}
+ 			}
+ 		}
+ 	}
