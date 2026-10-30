@@ -1,0 +1,9 @@
+--- a/trunk/versions.inc
++++ b/trunk/versions.inc
+@@ -1,3 +1,5 @@
+ FIRMWARE_ROOTFS_VER=3.9
+-FIRMWARE_BUILDS_VER=100
++# 0065（第 228 轮）：构建号 100→228，让 UI/日志能区分是哪一轮编的。
++# 版本串形如 4.4.3.9-228_<git短哈希>；FWBLDSTR 限 4 字节，228 合规。
++FIRMWARE_BUILDS_VER=228
+ FIRMWARE_BUILDS_REV=$(shell git rev-parse --short=7 HEAD 2>/dev/null)
