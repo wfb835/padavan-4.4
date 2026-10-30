@@ -56,9 +56,9 @@ on:
         required: false
         default: 'K2P-final2'
       with_wdt_patch:
-        description: '打 WDT 喂狗补丁 0001？（yes / no）—— ★ 2026-10-29 第 219 轮：默认改 no（0001 一打即 60 s 硬复位，见第 212 轮）'
+        description: '打 WDT 喂狗补丁 0001？（yes / no）—— ★ 2026-10-30 第 228 轮：默认改回 yes。第 223 轮 0062（SETTIMEOUT）已修好 60 s 硬复位，224 轮闭环通过，两机现役 v7 均含 WDT；用 no 会丢 0001/0055/0062'
         required: false
-        default: 'no'
+        default: 'yes'
       # ★ 2026-10-16 新增：让"回退路径"真正可执行（原版把 happy path 硬写成断言 ⇒ R1/R2/R3 全被 exit 1 拦下）
       strict_assert:
         description: '断言是否致命（yes / no）—— 设 no：语义断言降级为 warning（改 config 重跑时用）'
@@ -316,7 +316,10 @@ jobs:
                    patches/0058-mt7615-e2p-efuse-m6-depth.patch \
                    patches/0059-ap-cfg-stat-zero-result.patch \
                    patches/0060-raeth-esw-rate-port-bound.patch \
-                   patches/0061-raeth-lan-ip-nul-term.patch ; do
+                   patches/0061-raeth-lan-ip-nul-term.patch \
+                   patches/0063-networkmap-visible-clients.patch \
+                   patches/0064-web-clients-page-hardening.patch \
+                   patches/0065-build-ver-228.patch ; do
             if [ ! -f "$P" ]; then echo "::error::patch not found: $P"; exit 1; fi
             echo "================ $P ================"
             patch -p1 --dry-run < "$P"
@@ -547,6 +550,13 @@ jobs:
           check_grep "trunk/linux-4.4.x/drivers/net/ethernet/raeth/raether.c" "ip_tmp\[IP4_ADDR_LEN - 1\]" "0061 ioctl 路径 NUL 补齐"
           check_grep "trunk/linux-4.4.x/drivers/net/ethernet/raeth/raether.c" "if (result)" "0061 copy_from_user 返回检查（P-c）"
           check_grep "trunk/linux-4.4.x/drivers/net/ethernet/raeth/ra_dbg_proc.c" "count : IP4_ADDR_LEN - 1" "0061 procfs 路径 NUL 补齐"
+          echo "===== verify: 第 228 轮（0063 设备列表可见性）====="
+          check_grep "trunk/user/networkmap/networkmap.c" "ether_atoe(arp_hw, item->mac_addr)" "0063 导入内核 ARP 时取 MAC"
+          check_grep "trunk/user/networkmap/networkmap.c" "item->type = 6" "0063 旁听分支置未知设备图标"
+          echo "===== verify: 第 228 轮（0064 设备页加固）====="
+          check_grep "trunk/user/www/n56u_ribbon_fixed/state.js" "function esc_html" "0064 转义函数在位"
+          check_grep "trunk/user/www/n56u_ribbon_fixed/device-map/clients.asp" "esc_html(client\[0\])" "0064 设备名已转义"
+          check_grep "trunk/versions.inc" "FIRMWARE_BUILDS_VER=228" "0065 构建号已改 228"
           [ "$FAILED" = "0" ] || { echo "::error::补丁断言未全部通过（见上文 ::error:: 行）"; exit 1; }
 
       # ---- ★★ 供应链加固：预取 + 校验 frp tarball（第 110 轮·前置新增；用户 2026-10-16 决定「一起并入本轮」）----
