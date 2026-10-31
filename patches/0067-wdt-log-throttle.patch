@@ -1,0 +1,24 @@
+--- a/trunk/user/rc/watchdog.c
++++ b/trunk/user/rc/watchdog.c
+@@ -571,12 +571,17 @@
+ 
+ 	storage_save_time(10);
+ 
+-	/* 0055 diagnostics: 一条/约 60 s（WD_NORMAL_PERIOD=10 × 6 tick），日志量可控。
+-	 * 刷机后 ≤3 个复位周期内抓 2~3 条即可按 0001诊断版设计_第219轮.md §4 判读。 */
++	/* 0067: 心跳日志 1/分钟 → 1/10 分钟（省约 85 KB/天）；
++	 * fail 变化时立即打一条，故障证据不丢。诊断口径同 0055。 */
+ 	{
+ 		static unsigned hw_wdt_tick;
+-
+-		if (((++hw_wdt_tick) % 6) == 0)
++		static unsigned hw_wdt_last_fail;
++
++		if (hw_wdt_feed_fail != hw_wdt_last_fail) {
++			hw_wdt_last_fail = hw_wdt_feed_fail;
++			logmessage("watchdog", "hw_wdt: feed ok=%u fail=%u last_errno=%d (fail changed)",
++				   hw_wdt_feed_ok, hw_wdt_feed_fail, hw_wdt_feed_last_errno);
++		} else if (((++hw_wdt_tick) % 60) == 0)
+ 			logmessage("watchdog", "hw_wdt: feed ok=%u fail=%u last_errno=%d",
+ 				   hw_wdt_feed_ok, hw_wdt_feed_fail, hw_wdt_feed_last_errno);
+ 	}
