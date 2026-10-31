@@ -32,7 +32,7 @@
 #          （`d0d96e64acf0ff115dca6ef678ce3f99` / `928db92fb2dd2d9f7cc540a40cbadaa2224b582e7b186f46c743d458ad768dc6`，
 #           第 180 轮实测值）。release 无官方 digest，且 `dl_toolchain.sh` 的 `curl -O -L` 不校验
 #          ⇒ 原本「换 tag 静默换 libc」这条 P1 风险在流水线上零拦截点。
-#       备份：`_维护记录/_第182轮_补丁修复前备份/build-k2p.yml`
+#       备份：`_维护记录/_第182轮_死链修复前备份/build-k2p.yml`（⚠️ 全库有 3 个同名，请用 `es.exe` 定位）
 #
 # ★ 需要你上传【两个文件】到自己 fork 的仓库：
 #   1) .github/workflows/build-k2p.yml            ← 本文件
@@ -248,6 +248,19 @@ jobs:
             exit 1
           fi
           echo "  OK   0062 已生效（feed = SETTIMEOUT，替代 KEEPALIVE）"
+          # ---- 0067（第 228 轮，依赖 0001+0055+0062）：心跳日志 1/10min + fail 即报；syslog 1MB→4MB ----
+          P4="patches/0067-wdt-log-throttle.patch"
+          if [ ! -f "$P4" ]; then
+            echo "::error::patch not found: upload $P4, or set with_wdt_patch=no"
+            exit 1
+          fi
+          echo "== apply (0067) =="
+          patch -p1 < "$P4"
+          if ! grep -q "% 60) == 0" trunk/user/rc/watchdog.c; then
+            echo "::error::0067 未生效：watchdog.c 心跳日志未降频"
+            exit 1
+          fi
+          echo "  OK   0067 已生效（1 条/10min，fail 即报）"
 
       # ---- ★ 第 109 轮：裁剪补丁 + frp 版本对齐（默认应用；含 0003——它此前从未被应用）----
       #  0003 miniupnpd portinuse/leasefile 修复（第103轮移植成果，此前一直被漏掉）
@@ -319,7 +332,12 @@ jobs:
                    patches/0061-raeth-lan-ip-nul-term.patch \
                    patches/0063-networkmap-visible-clients.patch \
                    patches/0064-web-clients-page-hardening.patch \
-                   patches/0065-build-ver-228.patch ; do
+                   patches/0065-build-ver-228.patch \
+                   patches/0066-web-clients-forward-mark.patch \
+                   patches/0068-syslog-4m.patch \
+                   patches/0069-mt7615-tr-tb-idx-guard.patch \
+                   patches/0070-kconfig-printk-time.patch \
+                   patches/0071-build-ver-229.patch ; do
             if [ ! -f "$P" ]; then echo "::error::patch not found: $P"; exit 1; fi
             echo "================ $P ================"
             patch -p1 --dry-run < "$P"
@@ -555,8 +573,16 @@ jobs:
           check_grep "trunk/user/networkmap/networkmap.c" "item->type = 6" "0063 旁听分支置未知设备图标"
           echo "===== verify: 第 228 轮（0064 设备页加固）====="
           check_grep "trunk/user/www/n56u_ribbon_fixed/state.js" "function esc_html" "0064 转义函数在位"
-          check_grep "trunk/user/www/n56u_ribbon_fixed/device-map/clients.asp" "esc_html(client\[0\])" "0064 设备名已转义"
-          check_grep "trunk/versions.inc" "FIRMWARE_BUILDS_VER=228" "0065 构建号已改 228"
+          check_grep "trunk/user/www/n56u_ribbon_fixed/device-map/clients.asp" "esc_html(client\[1\])" "0064 href 用 IP 且转义"
+          check_grep "trunk/versions.inc" "FIRMWARE_BUILDS_REV" "0065 REV 行保留"
+          check_grep "trunk/user/www/n56u_ribbon_fixed/device-map/clients.asp" "var mac_shared" "0066 共用 MAC 统计在位"
+          check_grep "trunk/user/httpd/ralink.c" "rssi > -25" "0066 RSSI 上限钳制在位"
+          check_grep "trunk/user/rc/rc.h" "LOG_ROTATE_SIZE_MAX		4096" "0068 日志上限 4MB"
+          check_grep "$M/ap/ap.c" "tr_tb_idx != 0xff" "0069 PSM 越界写守卫在位"
+          check_grep "$M/ap/ap_cfg.c" "tr_tb_idx == 0xff" "0069 VLAN BC 早退在位"
+          check_grep "$M/common/wifi_sys_info.c" "tr_tb_idx != 0xff" "0069 linkup/linkdown 守卫在位"
+          check_grep "trunk/configs/boards/K2P/kernel-4.4.x.config" "CONFIG_PRINTK_TIME=y" "0070 dmesg 时间戳在位"
+          check_grep "trunk/versions.inc" "FIRMWARE_BUILDS_VER=229" "0071 构建号 229"
           [ "$FAILED" = "0" ] || { echo "::error::补丁断言未全部通过（见上文 ::error:: 行）"; exit 1; }
 
       # ---- ★★ 供应链加固：预取 + 校验 frp tarball（第 110 轮·前置新增；用户 2026-10-16 决定「一起并入本轮」）----
