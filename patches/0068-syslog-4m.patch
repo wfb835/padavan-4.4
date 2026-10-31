@@ -1,0 +1,11 @@
+--- a/trunk/user/rc/rc.h
++++ b/trunk/user/rc/rc.h
+@@ -140,7 +140,7 @@
+ #if defined(BOARD_K2P) && (BOARD_RAM_SIZE == 128)
+ /* K2P: 1 MB syslog buffer (default 512 KB). +0.5 MB tmpfs; /tmp has ~18 MB free. */
+ #undef LOG_ROTATE_SIZE_MAX
+-#define LOG_ROTATE_SIZE_MAX		1024
++#define LOG_ROTATE_SIZE_MAX		4096
+ #endif
+ 
+ //////////////////////////////////////////////////////////
