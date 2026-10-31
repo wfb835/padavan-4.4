@@ -1,0 +1,55 @@
+--- a/trunk/user/www/n56u_ribbon_fixed/device-map/clients.asp
++++ b/trunk/user/www/n56u_ribbon_fixed/device-map/clients.asp
+@@ -21,6 +21,10 @@
+ var ipmonitor = [<% get_static_client(); %>];
+ var wireless = {<% wl_auth_list(); %>};
+ 
++/* 0066: MAC 被多个 IP 共用 ⇒ 上游 AP 改写了源 MAC（AP2 桥接 apcli0），
++ * 这类行的 MAC/名称/RSSI 不代表真实终端，列表里要标出来。 */
++var mac_shared = {};
++
+ var list_type = '<% nvram_get_x("", "macfilter_enable_x"); %>';
+ var list_of_BlockedClient = [<% get_nvram_list("FirewallConfig", "MFList"); %>];
+ var m_dhcp = [<% get_nvram_list("LANHostConfig", "ManualDHCPList"); %>];
+@@ -46,6 +50,13 @@
+ 
+ function prepare_clients(){
+ 	var i, j, k;
++
++	/* 0066: 先统计每个 MAC 被几个 IP 使用 */
++	for(i = 0; i < clients.length; ++i){
++		var m = clients[i][2];
++		if (m && m != "*")
++			mac_shared[m] = (mac_shared[m] || 0) + 1;
++	}
+ 
+ 	if(typeof parent.show_client_status === 'function')
+ 		parent.show_client_status(clients.length);
+@@ -160,8 +171,12 @@
+ 
+ 	typeCell.style.textAlign = "center";
+ 	typeCell.innerHTML = "<img title='"+ DEVICE_TYPE[client[5]]+"' src='/bootstrap/img/wl_device/" + client[5] +".gif'>";
+-	/* 0064: href 用 IP（原来用设备名，点名字打不开）；文本与 href 一律转义 */
+-	nameCell.innerHTML = (client[6] == "1") ? "<a href='http://" + esc_html(client[1]) + "' target='blank'>" + esc_html(client[0]) + "</a>" : esc_html(client[0]);
++	/* 0064: href 用 IP；文本与 href 转义。0066: 共用 MAC 加标注 */
++	var nm = client[0];
++	if (mac_shared[client[2]] > 1)
++		nm = nm + "（经AP）";
++	nameCell.title = (mac_shared[client[2]] > 1) ? "该 MAC 被多个 IP 共用：上游 AP 改写了源 MAC，名称与信号不代表真实终端" : "";
++	nameCell.innerHTML = (client[6] == "1") ? "<a href='http://" + esc_html(client[1]) + "' target='blank'>" + esc_html(nm) + "</a>" : esc_html(nm);
+ 	ipCell.innerHTML = (client[6] == "1") ? "<a href='http://" + esc_html(client[1]) + "' target='blank'>" + esc_html(client[1]) + "</a>" : esc_html(client[1]);
+ 	macCell.innerHTML = "<a target='_blank' href='https://services13.ieee.org/RST/standards-ra-web/rest/assignments/?registry=MAC&text=" + client[2].substr(0,6) + "'>" + mac_add_delimiters(client[2]) + "</a>";
+ 	if (client[3] == 10){
+--- a/trunk/user/httpd/ralink.c
++++ b/trunk/user/httpd/ralink.c
+@@ -996,6 +996,10 @@
+ 		if ((int)me->AvgRssi2 > rssi && me->AvgRssi2 != 0)
+ 			rssi = (int)me->AvgRssi2;
+ 	}
++	/* 0066: 取多链最大值会把单链瞬时异常放大（实测出现过 -14 dBm）。
++	 * 只做上限钳制；-127 表示"无数据"，保持原样。 */
++	if (rssi != -127 && rssi > -25)
++		rssi = -25;
+ 	return rssi;
+ }
+ 
