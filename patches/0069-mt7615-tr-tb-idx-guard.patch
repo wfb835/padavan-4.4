@@ -1,0 +1,60 @@
+--- a/trunk/linux-4.4.x/drivers/net/wireless/mediatek/mt7615/embedded/ap/ap.c
++++ b/trunk/linux-4.4.x/drivers/net/wireless/mediatek/mt7615/embedded/ap/ap.c
+@@ -2638,7 +2638,8 @@
+ 			pMacTable->fAnyStationInPsm = TRUE;
+ 
+ 			if (pEntry->wdev &&
+-				(pEntry->wdev->wdev_type == WDEV_TYPE_AP || pEntry->wdev->wdev_type == WDEV_TYPE_GO)) {
++				(pEntry->wdev->wdev_type == WDEV_TYPE_AP || pEntry->wdev->wdev_type == WDEV_TYPE_GO) &&
++				pEntry->wdev->tr_tb_idx != 0xff) { /* 0069: skip uninit tr_tb_idx (0xff > 127) */
+ 				/* TODO: it looks like pEntry->wdev->tr_tb_idx is not assigned? */
+ 				pAd->MacTab.tr_entry[pEntry->wdev->tr_tb_idx].PsMode = PWR_SAVE;
+ 
+--- a/trunk/linux-4.4.x/drivers/net/wireless/mediatek/mt7615/embedded/ap/ap_cfg.c
++++ b/trunk/linux-4.4.x/drivers/net/wireless/mediatek/mt7615/embedded/ap/ap_cfg.c
+@@ -8504,6 +8504,9 @@
+ 	wdev->bVLAN_Tag = bVLAN_Tag;
+ 
+ 	if (if_type == INT_MAIN || if_type == INT_MBSSID) {
++		/* 0069: BC StaRec update requires an acquired tr_tb_idx (0xff = uninit) */
++		if (wdev->tr_tb_idx == 0xff)
++			return FALSE;
+ 		/* Update BC's StaRec of CR4 */
+ 		os_zero_mem(&StaCfg, sizeof(STA_REC_CFG_T));
+ 		pEntry = &pAd->MacTab.Content[wdev->tr_tb_idx];
+--- a/trunk/linux-4.4.x/drivers/net/wireless/mediatek/mt7615/embedded/common/wifi_sys_info.c
++++ b/trunk/linux-4.4.x/drivers/net/wireless/mediatek/mt7615/embedded/common/wifi_sys_info.c
+@@ -962,6 +962,8 @@
+ 			HW_SET_ASIC_WCID_4ADDR_HDR_TRANS(ad, wdev->bss_info_argument.ucBcMcWlanIdx, TRUE);
+ 		}
+ #endif
++			/* 0069: skip BMC starec setup when tr_tb_idx uninit (0xff) */
++			if (wdev->tr_tb_idx != 0xff) {
+ 			/*1. get tr entry here, since bss info is acquired above */
+ 			tr_entry = &ad->MacTab.tr_entry[wdev->tr_tb_idx];
+ 			sta_rec = &wsys.StaRecCtrl;
+@@ -985,6 +987,7 @@
+ 			MTWF_LOG(DBG_CAT_CFG, DBG_SUBCAT_ALL, DBG_LVL_TRACE,
+ 					 ("===> AsicStaRecUpdate called by (%s), wcid=%d, PortSecured=%d\n",
+ 				  __func__, bss->ucBcMcWlanIdx, sta_rec->ConnectionState));
++			} /* 0069: end guard */
+ 		}
+ 		/*update to hw ctrl*/
+ 		wsys.wdev = wdev;
+@@ -1015,6 +1018,8 @@
+ 		/*wds should not bmc starec*/
+ 		if (wdev->wdev_type != WDEV_TYPE_WDS) {
+ 			/*update sta rec.*/
++			/* 0069: skip BMC starec teardown when tr_tb_idx uninit (0xff) */
++			if (wdev->tr_tb_idx != 0xff) {
+ 			/*1. get tr entry here, since bss info is acquired above */
+ 			sta_rec = &wsys.StaRecCtrl;
+ 			tr_entry = &ad->MacTab.tr_entry[wdev->tr_tb_idx];
+@@ -1026,6 +1031,7 @@
+ 				sta_rec->WlanIdx = bss->ucBcMcWlanIdx;
+ 				sta_rec->priv = tr_entry;
+ 			}
++			} /* 0069: end guard */
+ 		}
+ 		/*update to hwctrl for hw seting*/
+ 		wsys.wdev = wdev;
