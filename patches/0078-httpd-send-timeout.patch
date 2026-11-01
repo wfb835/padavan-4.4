@@ -1,0 +1,21 @@
+--- a/trunk/user/httpd/httpd.c
++++ b/trunk/user/httpd/httpd.c
+@@ -60,6 +60,9 @@
+    原先无接收超时，半截请求会让 fgets 阻塞
+    整个 select 事件循环，管理界面整体不可用（R231-10）。 */
+ static const struct timeval conn_recv_timeout = { 15, 0 };
++/* 0078：发送侧对称面。日志页会整份吐出 /tmp/syslog.log（0068 后上限 4 MB），
++   慢客户端时 write() 阻塞同样会冻住单线程事件循环（方向与 0075 相反）。 */
++static const struct timeval conn_send_timeout = { 30, 0 };
+ #define MAX_AUTH_LEN		128
+ 
+ /* A multi-family in_addr. */
+@@ -1302,6 +1305,8 @@
+ 							setsockopt(item->fd, SOL_SOCKET, SO_KEEPALIVE, &int_1, sizeof(int_1));
+ 							/* 0075：15 s 无数据即断开，避免半截请求冻结事件循环（R231-10）。 */
+ 							setsockopt(item->fd, SOL_SOCKET, SO_RCVTIMEO, &conn_recv_timeout, sizeof(conn_recv_timeout));
++							/* 0078：单次发送停顿 30 s 即断开，避免慢客户端把事件循环按住。 */
++							setsockopt(item->fd, SOL_SOCKET, SO_SNDTIMEO, &conn_send_timeout, sizeof(conn_send_timeout));
+ 							FD_SET(item->fd, &active_rfds);
+ 							TAILQ_INSERT_TAIL(&pool.head, item, entry);
+ 							pool.count++;
