@@ -1,0 +1,39 @@
+--- a/trunk/user/www/n56u_ribbon_fixed/state.js
++++ b/trunk/user/www/n56u_ribbon_fixed/state.js
+@@ -665,13 +665,33 @@
+ }
+ 
+ function show_time(){
+-	JS_timeObj.setTime(systime_millsec); // Add millsec to it.
++	/* 0073: anchor on Date.now() (kills setTimeout drift) + resync from the
++	 * HTTP Date header every ~30 min (NTP jumps flow back), and show MM-DD. */
++	if (typeof window.time_offset_ms === "undefined")
++		window.time_offset_ms = systime_millsec - Date.now();
++	window.time_tick = (window.time_tick || 0) + 1;
++	if (window.time_tick % 1800 === 0) {
++		var _xhr = new XMLHttpRequest();
++		_xhr.open("HEAD", "/", true);
++		_xhr.onload = function() {
++			if (_xhr.status === 200 || _xhr.status === 401) {
++				var _d = _xhr.getResponseHeader("Date");
++				if (_d) {
++					var _ms = Date.parse(_d);
++					if (!isNaN(_ms)) window.time_offset_ms = _ms - Date.now();
++				}
++			}
++		};
++		_xhr.send();
++	}
++	JS_timeObj.setTime(Date.now() + window.time_offset_ms);
+ 	JS_timeObj3 = JS_timeObj.toString();
+-	JS_timeObj3 = checkTime(JS_timeObj.getHours()) + ":" +
++	JS_timeObj3 = (JS_timeObj.getMonth() + 1) + "-" + JS_timeObj.getDate() + " " +
++			checkTime(JS_timeObj.getHours()) + ":" +
+ 			checkTime(JS_timeObj.getMinutes()) + ":" +
+ 			checkTime(JS_timeObj.getSeconds());
+ 	$('systemtime').innerHTML ="<a href='/Advanced_System_Content.asp'>" + JS_timeObj3 + "</a>";
+-	systime_millsec += 1000;
++	systime_millsec += 1000; /* keep for showClockLogArea() */
+ 	stime_ID = setTimeout("show_time();", 1000);
+ }
+ 
