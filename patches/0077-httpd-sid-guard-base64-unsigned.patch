@@ -1,0 +1,45 @@
+--- a/trunk/user/httpd/web_ex.c
++++ b/trunk/user/httpd/web_ex.c
+@@ -1198,6 +1198,10 @@
+ 				break;
+ 			sid++;
+ 		}
++		/* 0077：未命中的 serviceId 会让 sid 停在 svcLinks 终止项 {0,0}，
++		 * GetVariables(sid) 返回 NULL ⇒ validate_asp_apply() 首行 v->name 空指针（httpd 段错误）。 */
++		if (GetServiceId(sid) == NULL)
++			continue;
+ 		
+ 		if (!strcmp(action_mode, "  Save  ") || !strcmp(action_mode, " Apply ")) {
+ 			if (!validate_asp_apply(wp, sid))
+@@ -3268,6 +3272,9 @@
+ 					break;
+ 				++sid;
+ 			}
++			/* 0077：同上，避免 sid 落到终止项后 validate_cgi()/apply_cgi_group() 解 NULL。 */
++			if (GetServiceId(sid) == NULL)
++				continue;
+ 			
+ 			if (!strcmp(value, "  Save  ") || !strcmp(value, " Apply "))
+ 				validate_cgi(wp, sid);
+--- a/trunk/user/httpd/base64.c
++++ b/trunk/user/httpd/base64.c
+@@ -28,7 +28,8 @@
+ ** Then the 6-bit values are represented using the characters "A-Za-z0-9+/".
+ */
+ 
+-static const char b64_decode_table[256] = {
++/* 0077：表项含 -1，必须显式 signed，避免某些平台 char 无符号时误判。 */
++static const signed char b64_decode_table[256] = {
+     -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,  /* 00-0F */
+     -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,  /* 10-1F */
+     -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,62,-1,-1,-1,63,  /* 20-2F */
+@@ -63,7 +64,8 @@
+ 	space_idx = 0;
+ 	phase = 0;
+ 	for ( cp = str; *cp != '\0'; ++cp ) {
+-		d = (int)b64_decode_table[(int)*cp];
++		/* 0077：*cp 是 char，>=0x80 时 (int)*cp 为负 ⇒ 负下标越界读表前数据。 */
++		d = (int)b64_decode_table[(unsigned char)*cp];
+ 		if ( d != -1 ) {
+ 			switch ( phase )
+ 			{
