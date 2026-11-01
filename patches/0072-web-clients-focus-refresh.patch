@@ -1,0 +1,18 @@
+--- a/trunk/user/www/n56u_ribbon_fixed/device-map/clients.asp
++++ b/trunk/user/www/n56u_ribbon_fixed/device-map/clients.asp
+@@ -134,6 +134,15 @@
+ 			$j('.popover_top').popover({placement: 'right'});
+ 			$j('.popover_bottom').popover({placement: 'right'});
+ 		}
++		/* 0072: refresh once when page becomes visible/focused. No periodic polling:
++		 * randomized MACs make rows churn, and httpd is single-threaded. */
++		if (!window.clients_refresh_hook) {
++			window.clients_refresh_hook = 1;
++			document.addEventListener('visibilitychange', function() {
++				if (document.visibilityState === 'visible') update_clients();
++			});
++			window.addEventListener('focus', function() { update_clients(); });
++		}
+ 	}else{
+ 		$("LoadingBar").style.display = "block";
+ 		$("refresh_list").disabled = true;
