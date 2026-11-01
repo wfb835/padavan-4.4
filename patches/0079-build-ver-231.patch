@@ -1,0 +1,10 @@
+--- a/trunk/versions.inc
++++ b/trunk/versions.inc
+@@ -3,5 +3,6 @@
+ # 版本串形如 4.4.3.9-228_<git短哈希>；FWBLDSTR 限 4 字节，228 合规。
+ # 0071（第 229 轮）：构建号 228→229（本版带 0066-0071）。
+ # 0076（第 231 轮）：构建号 229→230（本版带 0072-0075）。
+-FIRMWARE_BUILDS_VER=230
++# 0079（第 232 轮）：构建号 230→231（本版带 0077/0078）。
++FIRMWARE_BUILDS_VER=231
+ FIRMWARE_BUILDS_REV=$(shell git rev-parse --short=7 HEAD 2>/dev/null)
