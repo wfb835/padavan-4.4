@@ -1,0 +1,23 @@
+--- a/trunk/user/httpd/web_ex.c
++++ b/trunk/user/httpd/web_ex.c
+@@ -3025,7 +3025,19 @@
+ 					ltotal++;
+ 				fseek(fp, 0L, SEEK_SET);
+ 				
+-				lskip = ltotal - 100;
++				/* 0074: line cap is configurable (nvram log_ui_lines, default 2000);
++				 * applies when log_float_ui=2. Prevents a 4 MB syslog (~55k lines)
++				 * from blocking the single-threaded httpd. */
++				{
++					int ui_lines = nvram_get_int("log_ui_lines");
++					if (ui_lines <= 0)
++						ui_lines = 2000;
++					if (ui_lines < 100)
++						ui_lines = 100;
++					if (ui_lines > 20000)
++						ui_lines = 20000;
++					lskip = ltotal - ui_lines;
++				}
+ 				if (lskip < 0)
+ 					lskip = 0;
+ 			}
