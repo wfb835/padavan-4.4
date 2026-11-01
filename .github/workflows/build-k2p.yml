@@ -337,7 +337,12 @@ jobs:
                    patches/0068-syslog-4m.patch \
                    patches/0069-mt7615-tr-tb-idx-guard.patch \
                    patches/0070-kconfig-printk-time.patch \
-                   patches/0071-build-ver-229.patch ; do
+                   patches/0071-build-ver-229.patch \
+                   patches/0072-web-clients-focus-refresh.patch \
+                   patches/0073-web-header-clock.patch \
+                   patches/0074-syslog-line-cap.patch \
+                   patches/0075-httpd-recv-timeout.patch \
+                   patches/0076-build-ver-230.patch ; do
             if [ ! -f "$P" ]; then echo "::error::patch not found: $P"; exit 1; fi
             echo "================ $P ================"
             patch -p1 --dry-run < "$P"
@@ -582,7 +587,11 @@ jobs:
           check_grep "$M/ap/ap_cfg.c" "tr_tb_idx == 0xff" "0069 VLAN BC 早退在位"
           check_grep "$M/common/wifi_sys_info.c" "tr_tb_idx != 0xff" "0069 linkup/linkdown 守卫在位"
           check_grep "trunk/configs/boards/K2P/kernel-4.4.x.config" "CONFIG_PRINTK_TIME=y" "0070 dmesg 时间戳在位"
-          check_grep "trunk/versions.inc" "FIRMWARE_BUILDS_VER=229" "0071 构建号 229"
+          check_grep "trunk/versions.inc" "FIRMWARE_BUILDS_VER=230" "0076 构建号 230"
+          check_grep "trunk/user/www/n56u_ribbon_fixed/device-map/clients.asp" "clients_refresh_hook" "0072 设备页焦点刷新在位"
+          check_grep "trunk/user/www/n56u_ribbon_fixed/state.js" "time_offset_ms" "0073 头部时钟锚定在位"
+          check_grep "trunk/user/httpd/web_ex.c" "log_ui_lines" "0074 日志行数可配在位"
+          check_grep "trunk/user/httpd/httpd.c" "SO_RCVTIMEO" "0075 接收超时在位"
           [ "$FAILED" = "0" ] || { echo "::error::补丁断言未全部通过（见上文 ::error:: 行）"; exit 1; }
 
       # ---- ★★ 供应链加固：预取 + 校验 frp tarball（第 110 轮·前置新增；用户 2026-10-16 决定「一起并入本轮」）----
