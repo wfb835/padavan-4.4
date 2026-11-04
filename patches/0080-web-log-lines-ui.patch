@@ -1,0 +1,32 @@
+--- a/trunk/user/httpd/variables.c
++++ b/trunk/user/httpd/variables.c
+@@ -613,6 +613,8 @@
+ 			{"log_ipaddr", "", NULL, EVM_RESTART_SYSLOG},
+ 			{"log_port", "", NULL, EVM_RESTART_SYSLOG},
+ 			{"log_float_ui", "", NULL, FALSE},
++			/* 0080（第 233 轮）：浮窗日志行数，供 log_float_ui=2 分支读取（0074 已实现后端）。 */
++			{"log_ui_lines", "", NULL, FALSE},
+ 			{"time_zone", "", NULL, EVM_RESTART_TIME},
+ 			{"ntp_period", "", NULL, FALSE},
+ 			{"ntp_server0", "", NULL, EVM_RESTART_NTPC},
+--- a/trunk/user/www/n56u_ribbon_fixed/Advanced_System_Content.asp
++++ b/trunk/user/www/n56u_ribbon_fixed/Advanced_System_Content.asp
+@@ -385,6 +385,7 @@
+                                                     <option value="1" <% nvram_match_x("", "log_float_ui", "1","selected"); %>><#checkbox_Yes#> (*)</option>
+                                                     <option value="2" <% nvram_match_x("", "log_float_ui", "2","selected"); %>><#Adm_System_logf_item2#></option>
+                                                 </select>
++                                                <span style="margin-left:8px;">行数 <input type="text" class="input" size="5" maxlength="5" style="width: 55px" name="log_ui_lines" value="<% nvram_get_x("", "log_ui_lines"); %>" placeholder="2000" /></span>
+                                             </td>
+                                         </tr>
+                                         <tr>
+--- a/trunk/user/www/dict/CN.dict
++++ b/trunk/user/www/dict/CN.dict
+@@ -222,7 +222,7 @@
+ Adm_System_admin=管理员账号:
+ Adm_System_help=启用帮助
+ Adm_System_logf=启用系统日志浮动条
+-Adm_System_logf_item2=最近 100 行
++Adm_System_logf_item2=最近指定行数
+ Adm_Svc_desc=各种系统服务控制。
+ Adm_Svc_wins=启用 WINS 服务
+ Adm_Svc_ttyd_setup=ttyd设置
