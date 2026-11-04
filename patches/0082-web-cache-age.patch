@@ -1,0 +1,17 @@
+--- a/trunk/user/httpd/httpd.c
++++ b/trunk/user/httpd/httpd.c
+@@ -50,7 +50,13 @@
+ #define SERVER_PORT		80
+ #define SERVER_PORT_SSL		443
+ #define PROTOCOL		"HTTP/1.0"
+-#define CACHE_AGE_VAL		(30 * (24*60*60))
++
++/* 0082（第 233 轮）：静态资源缓存期 30 天 -> 1 小时。
++ * 原来是 30 天：改了 www 下的 js/css 并刷机后，客户端在有效期内
++ * 【完全不发请求】，最长 30 天仍在跑旧文件 —— 这才是"改完要 Ctrl+F5"的根因。
++ * do_file 的 304 判定（If-Modified-Since == st_mtime）保证期内命中只回
++ * 304（几十字节），所以缩短有效期不增加实际带宽，只多几个往返。 */
++#define CACHE_AGE_VAL		(60 * 60)
+ #define RFC1123FMT		"%a, %d %b %Y %H:%M:%S GMT"
+ #define MAX_LISTEN_BACKLOG	511
+ #define MAX_CONN_ACCEPT		50
