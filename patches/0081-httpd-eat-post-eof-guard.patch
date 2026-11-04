@@ -1,0 +1,19 @@
+--- a/trunk/user/httpd/httpd.c
++++ b/trunk/user/httpd/httpd.c
+@@ -758,8 +758,14 @@
+ 		return;
+ 
+ 	clen -= strlen(fake_buf);
+-	while (clen--)
+-		fgetc(conn_fp);
++	/* 0081（第 233 轮）：EOF 即停。原先丢弃 fgetc 的返回值，一旦对端关闭
++	 * 或 0075 的 SO_RCVTIMEO 触发，循环仍会空转完 clen 次 —— clen 上限
++	 * 50,000,000，单线程 httpd 会被纯函数调用占满数百毫秒到数秒，
++	 * 期间所有管理请求停摆。upload.c:287/304 已是正确写法，此处属遗漏。 */
++	while (clen-- > 0) {
++		if (fgetc(conn_fp) == EOF)
++			break;
++	}
+ }
+ 
+ static void
