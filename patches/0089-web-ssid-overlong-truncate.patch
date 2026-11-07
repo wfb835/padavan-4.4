@@ -1,0 +1,25 @@
+--- a/trunk/user/httpd/web_ex.c
++++ b/trunk/user/httpd/web_ex.c
+@@ -897,8 +897,20 @@
+ 			continue;
+ 		
+ 		if (!strcmp(v->name, "wl_ssid") || !strcmp(v->name, "rt_ssid")) {
+-			if (strlen(value) > 32)
+-				continue;
++			/* 0089（第 255 轮）：SSID 协议上限 32 字节。0084 的超长直接
++			 * continue 会让用户「设了没反应」且无任何提示 —— 前端
++			 * maxlength=32 按【字符】计，11 个汉字（33 B）即触发。
++			 * 改为按 UTF-8 字符边界截断到 <=32 字节后继续处理：
++			 * nvram 存的就是截断值，页面刷新即可看到实际生效结果。 */
++			if (strlen(value) > 32) {
++				static char ssid_cut[33];
++				size_t n = 32;
++				while (n > 0 && ((unsigned char)value[n] & 0xC0) == 0x80)
++					n--;
++				memcpy(ssid_cut, value, n);
++				ssid_cut[n] = '\0';
++				value = ssid_cut;
++			}
+ 		}
+ 		
+ 		if (!get_login_safe() && (v->event_mask & EVM_BLOCK_UNSAFE))
