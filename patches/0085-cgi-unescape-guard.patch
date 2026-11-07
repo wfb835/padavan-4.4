@@ -1,0 +1,17 @@
+--- a/trunk/user/httpd/cgi.c
++++ b/trunk/user/httpd/cgi.c
+@@ -36,9 +36,12 @@
+ 	while ((s = strpbrk(s, "%+"))) {
+ 		/* Parse %xx */
+ 		if (*s == '%') {
+-			sscanf(s + 1, "%02x", &c);
++			if (!s[1] || !s[2] || sscanf(s + 1, "%02x", &c) != 1) {
++				s++;
++				continue;
++			}
+ 			*s++ = (char) c;
+-			strncpy(s, s + 2, strlen(s) + 1);
++			memmove(s, s + 2, strlen(s + 2) + 1);
+ 		}
+ 		/* Space is special */
+ 		else if (*s == '+')
