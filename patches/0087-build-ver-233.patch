@@ -1,0 +1,10 @@
+--- a/trunk/versions.inc
++++ b/trunk/versions.inc
+@@ -5,5 +5,6 @@
+ # 0076（第 231 轮）：构建号 229→230（本版带 0072-0075）。
+ # 0079（第 232 轮）：构建号 230→231（本版带 0077/0078）。
+ # 0083（第 233 轮）：构建号 231→232（本版带 0080 日志行数 UI、0081 POST 丢弃 EOF 守卫、0082 静态资源缓存期 30 天→1 小时）。
+-FIRMWARE_BUILDS_VER=232
++# 0087（第 244/245 轮）：构建号 232→233（本版带 0084 char_to_ascii 边界、0085 cgi unescape 修正、0086 do_file 16 KB）。
++FIRMWARE_BUILDS_VER=233
+ FIRMWARE_BUILDS_REV=$(shell git rev-parse --short=7 HEAD 2>/dev/null)
