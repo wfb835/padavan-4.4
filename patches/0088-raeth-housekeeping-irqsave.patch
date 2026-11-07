@@ -1,0 +1,39 @@
+--- a/trunk/linux-4.4.x/drivers/net/ethernet/raeth/raether_pdma.c
++++ b/trunk/linux-4.4.x/drivers/net/ethernet/raeth/raether_pdma.c
+@@ -776,16 +776,22 @@
+ 	struct END_DEVICE *ei_local = netdev_priv(netdev);
+ 	struct PDMA_txdesc *tx_desc;
+ 	unsigned long skb_free_idx;
++	unsigned long flags;
+ 	int tx_processed = 0;
+ 
+ 	/* F1-A: housekeeping shares skb_free[]/free_idx/tx_ring_full with
+ 	 * ei_pdma_start_xmit(), which touches them under page_lock (irqsave
+ 	 * since 0042). Unlocked access here lost updates (tx_ring_full flag and
+-	 * in-flight skb_free slots) => skb leak under load. Both call sites run
+-	 * from hardirq already holding irq_lock, so a plain spin_lock() is
+-	 * enough; lock order irq_lock -> page_lock has no reverse path
+-	 * (gsw_interrupt takes only page_lock). */
+-	spin_lock(&ei_local->page_lock);
++	 * in-flight skb_free slots) => skb leak under load.
++	 *
++	 * 0088 更正：原注释称「两个调用点都在 hardirq 且已持 irq_lock」是错的。
++	 * raeth_poll_full (raether.c:446) 与 raeth_poll_tx (:626) 是 NAPI poll，
++	 * 跑在 softirq，既不持 irq_lock 也没关中断；只有 ei_interrupt (:1232)/
++	 * ei_tx_interrupt (:1666) 才是 hardirq。而 gsw_interrupt (ra_switch.c:3967)
++	 * 在 hardirq 里用 spin_lock_irqsave 取同一把 page_lock —— 于是
++	 * 「softirq 持锁未关中断 → 同 CPU hardirq 自旋等同一锁」会硬死锁。
++	 * 改为 irqsave 与 0042 一致；锁序 irq_lock -> page_lock 无反向路径。 */
++	spin_lock_irqsave(&ei_local->page_lock, flags);
+ 
+ 	tx_desc = ei_local->tx_ring0;
+ 	skb_free_idx = ei_local->free_idx;
+@@ -814,7 +820,7 @@
+ 	ei_local->tx_ring_full = 0;
+ 	ei_local->free_idx = skb_free_idx;
+ 
+-	spin_unlock(&ei_local->page_lock);
++	spin_unlock_irqrestore(&ei_local->page_lock, flags);
+ 
+ 	return tx_processed;
+ }
