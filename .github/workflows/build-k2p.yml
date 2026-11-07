@@ -601,7 +601,7 @@ jobs:
           check_grep "trunk/versions.inc" "FIRMWARE_BUILDS_VER=233" "0087 构建号 233"
           check_grep "trunk/user/httpd/aspbw.c" "int outsz" "0084 char_to_ascii 边界参数在位"
           check_grep "trunk/user/httpd/cgi.c" "strlen(s + 2) + 1" "0085 cgi unescape memmove 在位"
-          check_grep "trunk/user/httpd/httpd.c" "char buf[16384]" "0086 do_file 16 KB 在位"
+          check_grep "trunk/user/httpd/httpd.c" "char buf\[16384\]" "0086 do_file 16 KB 在位"
           check_grep "trunk/user/httpd/httpd.c" "(60 \* 60)" "0082 静态资源缓存 1 小时"
           check_grep "trunk/user/httpd/variables.c" "log_ui_lines" "0080 行数变量已登记"
           check_grep "trunk/user/www/n56u_ribbon_fixed/Advanced_System_Content.asp" "log_ui_lines" "0080 行数输入框在位"
