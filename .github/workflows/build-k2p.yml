@@ -349,7 +349,11 @@ jobs:
                    patches/0080-web-log-lines-ui.patch \
                    patches/0081-httpd-eat-post-eof-guard.patch \
                    patches/0082-web-cache-age.patch \
-                   patches/0083-build-ver-232.patch ; do
+                   patches/0083-build-ver-232.patch \
+                   patches/0084-web-char-to-ascii-bounded.patch \
+                   patches/0085-cgi-unescape-guard.patch \
+                   patches/0086-httpd-do-file-16k.patch \
+                   patches/0087-build-ver-233.patch ; do
             if [ ! -f "$P" ]; then echo "::error::patch not found: $P"; exit 1; fi
             echo "================ $P ================"
             patch -p1 --dry-run < "$P"
@@ -594,7 +598,10 @@ jobs:
           check_grep "$M/ap/ap_cfg.c" "tr_tb_idx == 0xff" "0069 VLAN BC 早退在位"
           check_grep "$M/common/wifi_sys_info.c" "tr_tb_idx != 0xff" "0069 linkup/linkdown 守卫在位"
           check_grep "trunk/configs/boards/K2P/kernel-4.4.x.config" "CONFIG_PRINTK_TIME=y" "0070 dmesg 时间戳在位"
-          check_grep "trunk/versions.inc" "FIRMWARE_BUILDS_VER=232" "0083 构建号 232"
+          check_grep "trunk/versions.inc" "FIRMWARE_BUILDS_VER=233" "0087 构建号 233"
+          check_grep "trunk/user/httpd/aspbw.c" "int outsz" "0084 char_to_ascii 边界参数在位"
+          check_grep "trunk/user/httpd/cgi.c" "strlen(s + 2) + 1" "0085 cgi unescape memmove 在位"
+          check_grep "trunk/user/httpd/httpd.c" "char buf[16384]" "0086 do_file 16 KB 在位"
           check_grep "trunk/user/httpd/httpd.c" "(60 \* 60)" "0082 静态资源缓存 1 小时"
           check_grep "trunk/user/httpd/variables.c" "log_ui_lines" "0080 行数变量已登记"
           check_grep "trunk/user/www/n56u_ribbon_fixed/Advanced_System_Content.asp" "log_ui_lines" "0080 行数输入框在位"
