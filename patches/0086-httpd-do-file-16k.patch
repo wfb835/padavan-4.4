@@ -1,0 +1,11 @@
+--- a/trunk/user/httpd/httpd.c
++++ b/trunk/user/httpd/httpd.c
+@@ -809,7 +809,7 @@
+ do_file(const char *url, FILE *stream)
+ {
+ 	FILE *fp;
+-	char buf[1024];
++	char buf[16384];
+ 	int nr;
+ 
+ 	if ((fp = fopen(url, "r")) != NULL) {
