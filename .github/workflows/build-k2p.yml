@@ -353,7 +353,12 @@ jobs:
                    patches/0084-web-char-to-ascii-bounded.patch \
                    patches/0085-cgi-unescape-guard.patch \
                    patches/0086-httpd-do-file-16k.patch \
-                   patches/0087-build-ver-233.patch ; do
+                   patches/0087-build-ver-233.patch \
+                   patches/0088-raeth-housekeeping-irqsave.patch \
+                   patches/0089-web-ssid-overlong-truncate.patch \
+                   patches/0090-syslog-cap-1m.patch \
+                   patches/0091-web-clients-nas-dict.patch \
+                   patches/0092-build-ver-234.patch ; do
             if [ ! -f "$P" ]; then echo "::error::patch not found: $P"; exit 1; fi
             echo "================ $P ================"
             patch -p1 --dry-run < "$P"
@@ -593,16 +598,21 @@ jobs:
           check_grep "trunk/versions.inc" "FIRMWARE_BUILDS_REV" "0065 REV 行保留"
           check_grep "trunk/user/www/n56u_ribbon_fixed/device-map/clients.asp" "var mac_shared" "0066 共用 MAC 统计在位"
           check_grep "trunk/user/httpd/ralink.c" "rssi > -25" "0066 RSSI 上限钳制在位"
-          check_grep "trunk/user/rc/rc.h" "LOG_ROTATE_SIZE_MAX		4096" "0068 日志上限 4MB"
+          check_grep "trunk/user/rc/rc.h" "LOG_ROTATE_SIZE_MAX		1024" "0090 日志上限 1MB（4MB 降回）"
           check_grep "$M/ap/ap.c" "tr_tb_idx != 0xff" "0069 PSM 越界写守卫在位"
           check_grep "$M/ap/ap_cfg.c" "tr_tb_idx == 0xff" "0069 VLAN BC 早退在位"
           check_grep "$M/common/wifi_sys_info.c" "tr_tb_idx != 0xff" "0069 linkup/linkdown 守卫在位"
           check_grep "trunk/configs/boards/K2P/kernel-4.4.x.config" "CONFIG_PRINTK_TIME=y" "0070 dmesg 时间戳在位"
-          check_grep "trunk/versions.inc" "FIRMWARE_BUILDS_VER=233" "0087 构建号 233"
+          check_grep "trunk/versions.inc" "FIRMWARE_BUILDS_VER=234" "0092 构建号 234"
           check_grep "trunk/user/httpd/aspbw.c" "int outsz" "0084 char_to_ascii 边界参数在位"
           check_grep "trunk/user/httpd/cgi.c" "strlen(s + 2) + 1" "0085 cgi unescape memmove 在位"
           check_grep "trunk/user/httpd/httpd.c" "char buf\[16384\]" "0086 do_file 16 KB 在位"
           check_grep "trunk/user/httpd/httpd.c" "(60 \* 60)" "0082 静态资源缓存 1 小时"
+          check_grep "trunk/linux-4.4.x/drivers/net/ethernet/raeth/raether_pdma.c" "spin_lock_irqsave(&ei_local->page_lock, flags)" "0088 housekeeping 锁 irqsave 在位"
+          check_grep "trunk/user/httpd/web_ex.c" "ssid_cut" "0089 SSID 超长截断在位"
+          check_grep "trunk/user/rc/rc.h" "由 4 MB 降回 1 MB" "0090 日志上限降回 1MB 在位"
+          check_grep "trunk/user/www/n56u_ribbon_fixed/device-map/clients.asp" "Device_type_04_NS" "0091 NAS 词条在位"
+          check_grep "trunk/versions.inc" "FIRMWARE_BUILDS_VER=234" "0092 构建号 234"
           check_grep "trunk/user/httpd/variables.c" "log_ui_lines" "0080 行数变量已登记"
           check_grep "trunk/user/www/n56u_ribbon_fixed/Advanced_System_Content.asp" "log_ui_lines" "0080 行数输入框在位"
           check_grep "trunk/user/httpd/httpd.c" "fgetc(conn_fp) == EOF" "0081 POST 丢弃 EOF 守卫在位"
