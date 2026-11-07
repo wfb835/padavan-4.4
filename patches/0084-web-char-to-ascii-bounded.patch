@@ -1,0 +1,209 @@
+--- a/trunk/user/httpd/httpd.h
++++ b/trunk/user/httpd/httpd.h
+@@ -141,7 +141,7 @@
+ extern int f_exists(const char *path);
+ extern int f_wait_exists(const char *name, int max);
+ extern int do_f(const char *path, webs_t wp);
+-extern void char_to_ascii(char *output, uint8_t *input);
++extern void char_to_ascii(char *output, int outsz, const uint8_t *input);
+ 
+ // cgi.c
+ extern void set_cgi(char *name, char *value);
+--- a/trunk/user/httpd/aspbw.c
++++ b/trunk/user/httpd/aspbw.c
+@@ -234,18 +234,20 @@
+ 	return is_valid_ascii_or_Chinese;
+ }
+ 
+-void char_to_ascii(char *output, uint8_t *input)
++void char_to_ascii(char *output, int outsz, const uint8_t *input)
+ {
+ 	int i;
+ 	char tmp[10];
+ 	char *ptr;
+ 	int input_len;
+ 
++	if (outsz < 1)
++		return;
+ 	ptr = output;
+-	input_len = strlen(input);
+-
+-	if (is_valid_hex_string(input)) {
+-		for ( i=2; i<input_len; i+=2) {
++	input_len = strlen((const char *)input);
++
++	if (is_valid_hex_string((uint8_t *)input)) {
++		for ( i=2; i<input_len && (ptr - output) + 3 < outsz; i+=2) {
+ 			sprintf(tmp, "%%%c%c", input[i], input[i+1]);
+ 			strcpy(ptr, tmp);
+ 			ptr+=3;
+@@ -261,11 +263,15 @@
+ 			   || input[i] == '_' || input[i] == '-'
+ 			   || input[i] == '\'' || input[i] == '.')
+ 			{
++				if ((ptr - output) + 1 >= outsz)
++					break;
+ 				*ptr = input[i];
+ 				ptr++;
+ 			}
+ 			else
+ 			{
++				if ((ptr - output) + 3 >= outsz)
++					break;
+ 				sprintf(tmp, "%%%.02X", input[i]);
+ 				strcpy(ptr, tmp);
+ 				ptr+=3;
+--- a/trunk/user/httpd/web_ex.c
++++ b/trunk/user/httpd/web_ex.c
+@@ -645,7 +645,7 @@
+ 
+ 	char tmpstr[256];
+ 	memset(tmpstr, 0x0, sizeof(tmpstr));
+-	char_to_ascii(tmpstr, nvram_safe_get(name));
++	char_to_ascii(tmpstr, sizeof(tmpstr), (const uint8_t *)nvram_safe_get(name));
+ 	ret += websWrite(wp, "%s", tmpstr);
+ 
+ 	return ret;
+@@ -896,6 +896,11 @@
+ 		if (!value)
+ 			continue;
+ 		
++		if (!strcmp(v->name, "wl_ssid") || !strcmp(v->name, "rt_ssid")) {
++			if (strlen(value) > 32)
++				continue;
++		}
++		
+ 		if (!get_login_safe() && (v->event_mask & EVM_BLOCK_UNSAFE))
+ 			continue;
+ 		
+@@ -976,7 +981,7 @@
+ 			if (!strcmp(v->name, "wl_ssid"))
+ 			{
+ 				memset(buff, 0, sizeof(buff));
+-				char_to_ascii(buff, value);
++				char_to_ascii(buff, sizeof(buff), (const uint8_t *)value);
+ 				nvram_set("wl_ssid2", buff);
+ 			}
+ 			
+@@ -1049,7 +1054,7 @@
+ 			if (!strcmp(v->name, "rt_ssid"))
+ 			{
+ 				memset(buff, 0, sizeof(buff));
+-				char_to_ascii(buff, value);
++				char_to_ascii(buff, sizeof(buff), (const uint8_t *)value);
+ 				nvram_set("rt_ssid2", buff);
+ 			}
+ 			
+@@ -3595,8 +3600,8 @@
+ 		return;
+ 
+ 	clen -= strlen(post_buf);
+-	while (clen--)
+-		fgetc(stream);
++	while (clen-- > 0 && fgetc(stream) != EOF)
++		;
+ 
+ 	websScan(post_buf);
+ 	init_cgi(post_buf);
+--- a/trunk/user/httpd/ralink.c
++++ b/trunk/user/httpd/ralink.c
+@@ -1742,7 +1742,7 @@
+ 			site_signal[9] = '\0';
+ 			
+ 			memset(ssid_str, 0, sizeof(ssid_str));
+-			char_to_ascii(ssid_str, trim_r(site_ssid));
++			char_to_ascii(ssid_str, sizeof(ssid_str), (const uint8_t *)trim_r(site_ssid));
+ 			
+ 			if (!strlen(ssid_str))
+ 				strcpy(ssid_str, "???");
+@@ -1858,7 +1858,7 @@
+ 			site_signal[9] = '\0';
+ 			
+ 			memset(ssid_str, 0, sizeof(ssid_str));
+-			char_to_ascii(ssid_str, trim_r(site_ssid));
++			char_to_ascii(ssid_str, sizeof(ssid_str), (const uint8_t *)trim_r(site_ssid));
+ 			
+ 			if (!strlen(ssid_str))
+ 				strcpy(ssid_str, "???");
+--- a/trunk/user/rc/rc.h
++++ b/trunk/user/rc/rc.h
+@@ -180,7 +180,7 @@
+ char *mac_conv(const char *mac_nvkey, int idx, char *buf);
+ char *mac_conv2(const char *mac_nvkey, int idx, char *buf);
+ void get_eeprom_params(void);
+-void char_to_ascii(char *output, char *input);
++void char_to_ascii(char *output, int outsz, const char *input);
+ unsigned int get_param_int_hex(const char *param);
+ void load_user_config(FILE *fp, const char *dir_name, const char *file_name, const char **forbid_list);
+ int is_module_loaded(const char *module_name);
+--- a/trunk/user/rc/common_ex.c
++++ b/trunk/user/rc/common_ex.c
+@@ -419,15 +419,19 @@
+ }
+ 
+ void
+-char_to_ascii(char *output, char *input)
++char_to_ascii(char *output, int outsz, const char *input)
+ {
+ 	int i;
+ 	char tmp[10];
+ 	char *ptr;
+-
++	int input_len;
++
++	if (outsz < 1)
++		return;
+ 	ptr = output;
+-
+-	for ( i=0; i<strlen(input); i++ ) {
++	input_len = strlen(input);
++
++	for ( i=0; i<input_len; i++ ) {
+ 		if ((input[i]>='0' && input[i] <='9')
+ 		   ||(input[i]>='A' && input[i]<='Z')
+ 		   ||(input[i] >='a' && input[i]<='z')
+@@ -435,10 +439,14 @@
+ 		   || input[i] == '(' || input[i] == ')'
+ 		   || input[i] == '_' || input[i] == '-'
+ 		   || input[i] == '\'' || input[i] == '.') {
++			if ((ptr - output) + 1 >= outsz)
++				break;
+ 			*ptr = input[i];
+ 			ptr ++;
+ 		} else {
+-			sprintf(tmp, "%%%.02X", input[i]);
++			if ((ptr - output) + 3 >= outsz)
++				break;
++			sprintf(tmp, "%%%.02X", (unsigned char)input[i]);
+ 			strcpy(ptr, tmp);
+ 			ptr += 3;
+ 		}
+--- a/trunk/user/rc/rc.c
++++ b/trunk/user/rc/rc.c
+@@ -324,7 +324,7 @@
+ static void
+ nvram_convert_misc_values(void)
+ {
+-	char buff[64];
++	char buff[128];
+ 	int sw_mode;
+ 
+ 	/* check router mode */
+@@ -355,7 +355,7 @@
+ 		nvram_wlan_set(1, "ssid", DEF_WLAN_5G_SSID);
+ 
+ 	memset(buff, 0, sizeof(buff));
+-	char_to_ascii(buff, nvram_wlan_get(1, "ssid"));
++	char_to_ascii(buff, sizeof(buff), nvram_wlan_get(1, "ssid"));
+ 	nvram_wlan_set(1, "ssid2", buff);
+ 
+ 	if (strlen(nvram_wlan_get(1, "wpa_mode")) < 1)
+@@ -386,7 +386,7 @@
+ 		nvram_wlan_set(0, "ssid", DEF_WLAN_2G_SSID);
+ 
+ 	memset(buff, 0, sizeof(buff));
+-	char_to_ascii(buff, nvram_wlan_get(0, "ssid"));
++	char_to_ascii(buff, sizeof(buff), nvram_wlan_get(0, "ssid"));
+ 	nvram_wlan_set(0, "ssid2", buff);
+ 
+ 	if (strlen(nvram_wlan_get(0, "gmode")) < 1)
