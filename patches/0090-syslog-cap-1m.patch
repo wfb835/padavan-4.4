@@ -1,0 +1,18 @@
+--- a/trunk/user/rc/rc.h
++++ b/trunk/user/rc/rc.h
+@@ -138,9 +138,13 @@
+ #endif
+ 
+ #if defined(BOARD_K2P) && (BOARD_RAM_SIZE == 128)
+-/* K2P: 1 MB syslog buffer (default 512 KB). +0.5 MB tmpfs; /tmp has ~18 MB free. */
++/* K2P: 1 MB syslog buffer (default 512 KB). +0.5 MB tmpfs; /tmp has ~18 MB free.
++ * 0090（第 255 轮）：由 4 MB 降回 1 MB。实测行密度约 76 B/行 => 4 MB 约 5.5 万行，
++ * 而 WebUI 的 log_ui_lines 默认只显示 2000 行（约 3.6%），性价比不成立；
++ * 且 4 MB tmpfs 占 /tmp 23 MB 的 17%，是「MemAvailable 缓降」的主因。
++ * 1 MB 约 1.4 万行，UI 可见比例提升到约 14%，同时省下 3 MB。 */
+ #undef LOG_ROTATE_SIZE_MAX
+-#define LOG_ROTATE_SIZE_MAX		4096
++#define LOG_ROTATE_SIZE_MAX		1024
+ #endif
+ 
+ //////////////////////////////////////////////////////////
